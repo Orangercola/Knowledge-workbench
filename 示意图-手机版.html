@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=3.0, user-scalable=yes">
+<title>知识工作台 - 界面示意图</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    background: #F3F0FB; color: #241e42; line-height: 1.6;
+    padding: 12px 10px 30px;
+    -webkit-text-size-adjust: 100%;
+  }
+  h1 {
+    text-align: center; font-size: 18px; color: #4A2BD6;
+    margin-bottom: 4px; letter-spacing: 1px;
+  }
+  .subtitle { text-align: center; font-size: 13px; color: #888; margin-bottom: 18px; }
+
+  .card {
+    background: #fff; border-radius: 12px;
+    padding: 12px 8px; margin-bottom: 16px;
+    box-shadow: 0 2px 12px rgba(74,43,214,0.08);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .card h3 {
+    font-size: 15px; color: #4A2BD6; padding: 0 8px; margin-bottom: 8px;
+    border-left: 3px solid #6f4cff; padding-left: 10px;
+  }
+  .card svg {
+    width: 100%; height: auto; min-width: 320px; display: block;
+  }
+  .note {
+    text-align: center; font-size: 11px; color: #aaa; margin-top: 6px;
+  }
+  .tip {
+    background: #EEEDFE; border-radius: 8px; padding: 10px 14px;
+    font-size: 13px; color: #4A2BD6; text-align: center;
+    margin-bottom: 14px;
+  }
+
+  /* dark mode */
+  @media (prefers-color-scheme: dark) {
+    body { background: #1a1730; color: #d0c8f0; }
+    .card { background: #241e42; box-shadow: 0 2px 12px rgba(0,0,0,0.3); }
+    .card h3 { color: #a89cf8; }
+    .subtitle { color: #7a75a0; }
+    .tip { background: #2d2750; color: #a89cf8; }
+    .note { color: #6a6570; }
+    h1 { color: #a89cf8; }
+  }
+</style>
+</head>
+<body>
+
+<h1>知识工作台 (Knowledge Workbench)</h1>
+<p class="subtitle">界面布局示意图 · Knowledge Workbench Layout</p>
+
+<p class="tip">&#x1F4F1; 双指缩放查看细节 &nbsp;|&nbsp; 左右滑动浏览</p>
+
+<div class="card">
+  <h3>&#x1F4CA; Dashboard 总览页</h3>
+  <svg viewBox="0 0 680 400" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <style>
+        text { font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif; }
+        .t { font-size: 14px; font-weight: 500; fill: #3C3489; }
+        .ts { font-size: 12px; font-weight: 400; fill: #5F5E5A; }
+        .th { font-size: 14px; font-weight: 500; fill: #3C3489; }
+        .ti { font-size: 13px; font-weight: 400; fill: #3C3489; }
+        .tc { font-size: 11px; font-weight: 400; fill: #888780; }
+        .box { fill: #EEEDFE; stroke: #AFA9EC; }
+        .box-amber { fill: #FAEEDA; stroke: #EF9F27; }
+        .box-teal { fill: #E1F5EE; stroke: #1D9E75; }
+        .box-pink { fill: #FBEAF0; stroke: #D4537E; }
+        .box-coral { fill: #FAECE7; stroke: #D85A30; }
+      </style>
+    </defs>
+    <rect x="0" y="0" width="680" height="400" fill="#FAFAFC" rx="12"/>
+
+    <!-- Sidebar -->
+    <rect x="8" y="8" width="148" height="384" fill="#F6F5FF" stroke="#E2DEF8" rx="8"/>
+    <text class="t" x="24" y="34">&#9670; 工作台</text>
+    <text class="tc" x="24" y="52">个人知识工作台</text>
+    <rect class="box" x="20" y="66" width="124" height="28" rx="6"/>
+    <text class="ts" x="32" y="85" fill="#534AB7">&#x1F4CA; 总览</text>
+    <rect x="20" y="100" width="124" height="28" rx="6" fill="transparent"/>
+    <text class="ts" x="32" y="119">&#x1F578; 知识星图</text>
+    <rect x="20" y="132" width="124" height="28" rx="6" fill="transparent"/>
+    <text class="ts" x="32" y="151">&#x1F5C3; 素材库</text>
+    <rect x="20" y="164" width="124" height="28" rx="6" fill="transparent"/>
+    <text class="ts" x="32" y="183">&#x1F525; 每日热点</text>
+    <line x1="20" y1="204" x2="148" y2="204" stroke="#E2DEF8" stroke-width="0.5"/>
+    <text class="tc" x="24" y="224">个人日常</text>
+    <text class="ts" x="32" y="253">&#x1F6E0; 每日工作</text>
+    <text class="ts" x="32" y="285">&#x1F4B0; 记账</text>
+    <text class="ts" x="32" y="317">&#x1F3ED; 方案工坊</text>
+    <line x1="20" y1="344" x2="148" y2="344" stroke="#E2DEF8" stroke-width="0.5"/>
+    <text class="ts" x="32" y="373">&#x1F4DA; 书架</text>
+
+    <!-- Top bar -->
+    <rect x="172" y="12" width="496" height="44" fill="#EEEDFE" stroke="#AFA9EC" rx="8"/>
+    <text class="th" x="196" y="31" fill="#534AB7">&#x1F3E0; 知识总览</text>
+    <text class="tc" x="296" y="31">知识库统计数据与待办概览</text>
+    <text class="tc" x="560" y="31">&#x26A1; 更新于: 刚刚</text>
+
+    <!-- Stat cards -->
+    <rect class="box" x="176" y="66" width="100" height="58" rx="8"/>
+    <text class="tc" x="196" y="84">知识层</text>
+    <text class="th" x="196" y="108" fill="#534AB7">128</text>
+    <text class="tc" x="226" y="108">页</text>
+    <rect class="box-teal" x="284" y="66" width="100" height="58" rx="8"/>
+    <text class="tc" x="304" y="84">素材转换</text>
+    <text class="th" x="304" y="108" fill="#0F6E56">45</text>
+    <text class="tc" x="334" y="108">篇</text>
+    <rect class="box-pink" x="392" y="66" width="100" height="58" rx="8"/>
+    <text class="tc" x="412" y="84">对比综述</text>
+    <text class="th" x="412" y="108" fill="#993556">12</text>
+    <text class="tc" x="442" y="108">篇</text>
+    <rect class="box-amber" x="500" y="66" width="108" height="58" rx="8"/>
+    <text class="tc" x="520" y="84">待办完成度</text>
+    <circle cx="532" cy="98" r="16" fill="none" stroke="#EF9F27" stroke-width="4" stroke-dasharray="75 25"/>
+    <text class="th" x="532" y="103" text-anchor="middle" fill="#BA7517" font-size="10px">75%</text>
+    <text class="tc" x="580" y="96">8/12</text>
+    <text class="tc" x="580" y="110">已完成</text>
+
+    <!-- Status panel -->
+    <rect x="176" y="132" width="236" height="120" fill="#F6F5FF" stroke="#E2DEF8" rx="8"/>
+    <text class="th" x="196" y="152" fill="#534AB7">工作流状态</text>
+    <text class="ts" x="196" y="172">闭环流程: 素材采集 > 摘要提炼 > 知识编译</text>
+    <text class="ts" x="196" y="190">当前阶段: 知识编译 (进行中)</text>
+    <text class="ts" x="196" y="208">模块: 概念库 &#x2705; 实体库 &#x2705; 对比库 &#x2705;</text>
+    <text class="ts" x="196" y="226">      素材摘要 &#x2705; 综述 &#x25CB; 主题 &#x25CB;</text>
+
+    <!-- Todo list -->
+    <rect x="420" y="132" width="252" height="120" fill="#FFF" stroke="#E2DEF8" rx="8"/>
+    <text class="th" x="440" y="152" fill="#534AB7">待办清单</text>
+    <rect class="box-coral" x="436" y="162" width="28" height="20" rx="4"/>
+    <text class="tc" x="450" y="176" text-anchor="middle" fill="#712B13">P0</text>
+    <text class="ti" x="472" y="177">知识星图交付 (工作台+报告)</text>
+    <rect class="box-amber" x="436" y="188" width="28" height="20" rx="4"/>
+    <text class="tc" x="450" y="202" text-anchor="middle" fill="#854F0B">P1</text>
+    <text class="ti" x="472" y="203">每日热点自动化采集</text>
+    <rect x="436" y="214" width="28" height="20" fill="#F1EFE8" stroke="#B4B2A9" rx="4"/>
+    <text class="tc" x="450" y="228" text-anchor="middle" fill="#5F5E5A">P2</text>
+    <text class="ti" x="472" y="229">阅读进度自动汇总</text>
+
+    <!-- Source distribution -->
+    <rect x="176" y="260" width="236" height="100" fill="#FFF" stroke="#E2DEF8" rx="8"/>
+    <text class="th" x="196" y="280" fill="#534AB7">素材分布</text>
+    <text class="tc" x="196" y="302">制度政策</text>
+    <rect x="264" y="293" width="108" height="12" fill="#EEEDFE" rx="4"/>
+    <rect x="264" y="293" width="86" height="12" fill="#AFA9EC" rx="4"/>
+    <text class="tc" x="196" y="322">汇报交流</text>
+    <rect x="264" y="313" width="108" height="12" fill="#EEEDFE" rx="4"/>
+    <rect x="264" y="313" width="65" height="12" fill="#AFA9EC" rx="4"/>
+    <text class="tc" x="196" y="342">技术能力</text>
+    <rect x="264" y="333" width="108" height="12" fill="#EEEDFE" rx="4"/>
+    <rect x="264" y="333" width="52" height="12" fill="#AFA9EC" rx="4"/>
+
+    <!-- Recent activity -->
+    <rect x="420" y="260" width="252" height="100" fill="#FFF" stroke="#E2DEF8" rx="8"/>
+    <text class="th" x="440" y="280" fill="#534AB7">最近操作</text>
+    <text class="ts" x="440" y="300">08-09 15:30  审核通过: 数据空间概念卡</text>
+    <text class="ts" x="440" y="318">08-09 14:20  新增素材: 政务数据管理办法</text>
+    <text class="ts" x="440" y="336">08-09 11:05  生成对比: A vs B 平台方案</text>
+    <text class="ts" x="440" y="354">08-09 09:30  待办完成: 知识星图初稿</text>
+
+    <text class="tc" x="620" y="392" text-anchor="end">示意图 - 不含真实数据</text>
+  </svg>
+  <p class="note">Dashboard 总览页布局：左侧导航 + 统计卡片 + 状态面板 + 待办 + 素材分布 + 操作日志</p>
+</div>
+
+<div class="card">
+  <h3>&#x1F5D3; 每日工作 &amp; 日历页</h3>
+  <svg viewBox="0 0 680 420" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <style>
+        text { font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif; }
+        .ts { font-size: 12px; font-weight: 400; fill: #5F5E5A; }
+        .th { font-size: 14px; font-weight: 500; fill: #3C3489; }
+        .tc { font-size: 11px; font-weight: 400; fill: #888780; }
+        .td { font-size: 10px; font-weight: 400; fill: #5F5E5A; }
+        .cal-cell { fill: #FFF; stroke: #E2DEF8; }
+        .cal-today { fill: #EEEDFE; stroke: #AFA9EC; }
+        .cal-marker { fill: #FAEEDA; stroke: #EF9F27; }
+      </style>
+    </defs>
+    <rect x="0" y="0" width="680" height="420" fill="#FAFAFC" rx="12"/>
+
+    <text class="th" x="20" y="28">&#x1F5D3; 2026年 8月</text>
+    <line x1="16" y1="40" x2="90" y2="40" stroke="#EF9F27" stroke-width="2"/>
+
+    <!-- Calendar headers -->
+    <rect class="cal-cell" x="16" y="44" width="88" height="26" rx="4"/>
+    <text class="td" x="60" y="61" text-anchor="middle" fill="#888780">日</text>
+    <rect class="cal-cell" x="108" y="44" width="88" height="26" rx="4"/>
+    <text class="td" x="152" y="61" text-anchor="middle" fill="#888780">一</text>
+    <rect class="cal-cell" x="200" y="44" width="88" height="26" rx="4"/>
+    <text class="td" x="244" y="61" text-anchor="middle" fill="#888780">二</text>
+    <rect class="cal-cell" x="292" y="44" width="88" height="26" rx="4"/>
+    <text class="td" x="336" y="61" text-anchor="middle" fill="#888780">三</text>
+    <rect class="cal-cell" x="384" y="44" width="88" height="26" rx="4"/>
+    <text class="td" x="428" y="61" text-anchor="middle" fill="#888780">四</text>
+    <rect class="cal-cell" x="476" y="44" width="88" height="26" rx="4"/>
+    <text class="td" x="520" y="61" text-anchor="middle" fill="#888780">五</text>
+    <rect class="cal-cell" x="568" y="44" width="88" height="26" rx="4"/>
+    <text class="td" x="612" y="61" text-anchor="middle" fill="#888780">六</text>
+
+    <!-- Week 1 -->
+    <rect class="cal-cell" x="568" y="74" width="88" height="36" rx="4"/>
+    <text class="ts" x="612" y="97" text-anchor="middle" fill="#B4B2A9">1</text>
+    <rect class="cal-cell" x="16" y="74" width="88" height="36" rx="4"/>
+    <text class="ts" x="60" y="97" text-anchor="middle">3</text>
+    <rect class="cal-cell" x="108" y="74" width="88" height="36" rx="4"/>
+    <text class="ts" x="152" y="97" text-anchor="middle">4</text>
+    <rect class="cal-cell" x="200" y="74" width="88" height="36" rx="4"/>
+    <text class="ts" x="244" y="97" text-anchor="middle">5</text>
+    <rect class="cal-marker" x="292" y="74" width="88" height="36" rx="4"/>
+    <text class="th" x="336" y="92" text-anchor="middle" fill="#854F0B">6</text>
+    <text class="tc" x="336" y="107" text-anchor="middle" fill="#BA7517">待 2</text>
+    <rect class="cal-cell" x="384" y="74" width="88" height="36" rx="4"/>
+    <text class="ts" x="428" y="97" text-anchor="middle">7</text>
+    <rect class="cal-cell" x="476" y="74" width="88" height="36" rx="4"/>
+    <text class="ts" x="520" y="97" text-anchor="middle">8</text>
+
+    <!-- Today -->
+    <rect class="cal-today" x="568" y="114" width="88" height="36" rx="4"/>
+    <text class="th" x="612" y="132" text-anchor="middle" fill="#534AB7">10</text>
+    <line x1="578" y1="142" x2="646" y2="142" stroke="#7F77DD" stroke-width="1.5"/>
+
+    <!-- Row 3 (dashed = future) -->
+    <rect x="16" y="158" width="88" height="36" fill="#FFF" stroke="#E2DEF8" rx="4" stroke-dasharray="3,3"/>
+    <rect x="108" y="158" width="88" height="36" fill="#FFF" stroke="#E2DEF8" rx="4" stroke-dasharray="3,3"/>
+    <rect x="200" y="158" width="88" height="36" fill="#FFF" stroke="#E2DEF8" rx="4" stroke-dasharray="3,3"/>
+    <rect x="292" y="158" width="88" height="36" fill="#FFF" stroke="#E2DEF8" rx="4" stroke-dasharray="3,3"/>
+    <rect x="384" y="158" width="88" height="36" fill="#FFF" stroke="#E2DEF8" rx="4" stroke-dasharray="3,3"/>
+    <rect x="476" y="158" width="88" height="36" fill="#FFF" stroke="#E2DEF8" rx="4" stroke-dasharray="3,3"/>
+    <rect x="568" y="158" width="88" height="36" fill="#FFF" stroke="#E2DEF8" rx="4" stroke-dasharray="3,3"/>
+
+    <!-- Tabs -->
+    <rect x="16" y="202" width="648" height="28" rx="6" fill="#F6F5FF" stroke="#E2DEF8"/>
+    <rect x="20" y="206" width="84" height="20" fill="#534AB7" rx="5"/>
+    <text class="ts" x="62" y="221" text-anchor="middle" fill="#FFF">每日工作</text>
+    <text class="ts" x="152" y="221" text-anchor="middle">待办事项</text>
+    <text class="ts" x="242" y="221" text-anchor="middle">已办结</text>
+    <text class="ts" x="332" y="221" text-anchor="middle">记账手册</text>
+    <text class="tc" x="600" y="221" text-anchor="end">&#x2795; 新增</text>
+
+    <!-- Work table -->
+    <rect x="16" y="238" width="648" height="74" fill="#FFF" stroke="#E2DEF8" rx="8"/>
+    <line x1="16" y1="262" x2="664" y2="262" stroke="#F1EFE8" stroke-width="0.5"/>
+    <text class="tc" x="48" y="254" text-anchor="middle">时间</text>
+    <text class="tc" x="356" y="254" text-anchor="middle">工作内容</text>
+    <line x1="90" y1="238" x2="90" y2="312" stroke="#F1EFE8" stroke-width="0.5"/>
+    <text class="ts" x="48" y="280" text-anchor="middle">09:30</text>
+    <text class="ts" x="356" y="280">参加项目评审会议</text>
+    <line x1="16" y1="294" x2="664" y2="294" stroke="#F1EFE8" stroke-width="0.5"/>
+    <text class="ts" x="48" y="306" text-anchor="middle">14:00</text>
+    <text class="ts" x="356" y="306">处理合同签署流程</text>
+
+    <!-- Completed -->
+    <rect x="16" y="320" width="320" height="52" fill="#FFF" stroke="#E2DEF8" rx="8"/>
+    <text class="th" x="36" y="340" fill="#534AB7">&#x2611; 已办结</text>
+    <text class="ts" x="36" y="360">08-06 项目评审通过  ·  08-05 合同流程完成</text>
+
+    <!-- Bookkeeping -->
+    <rect x="344" y="320" width="320" height="52" fill="#FFF" stroke="#E2DEF8" rx="8"/>
+    <text class="th" x="364" y="340" fill="#534AB7">&#x1F4B0; 记账</text>
+    <text class="ts" x="364" y="360">午餐 28 元  ·  饮品 12.9 元  ·  本月累计 1,086 元</text>
+
+    <text class="tc" x="620" y="412" text-anchor="end">示意图 - 不含真实数据</text>
+  </svg>
+  <p class="note">每日工作页布局：月历 + 标签页切换 + 工作记录表格 + 已办结 + 记账统计</p>
+</div>
+
+<div class="card">
+  <h3>&#x1F578; 功能一览</h3>
+  <table style="width:100%;border-collapse:collapse;font-size:13px;">
+    <tr><th style="padding:8px 10px;background:#EEEDFE;color:#4A2BD6;text-align:left;border-radius:6px 0 0 0;">模块</th><th style="padding:8px 10px;background:#EEEDFE;color:#4A2BD6;text-align:left;border-radius:0 6px 0 0;">功能</th></tr>
+    <tr style="border-bottom:1px solid #eee;"><td style="padding:6px 10px;font-weight:500;">📊 总览</td><td style="padding:6px 10px;">知识库统计、待办清单、素材分布、操作日志</td></tr>
+    <tr style="border-bottom:1px solid #eee;"><td style="padding:6px 10px;font-weight:500;">🕸 知识星图</td><td style="padding:6px 10px;">双向链接关系图，拖拽缩放探索知识网络</td></tr>
+    <tr style="border-bottom:1px solid #eee;"><td style="padding:6px 10px;font-weight:500;">🗃 素材库</td><td style="padding:6px 10px;">原始素材浏览 + MiniSearch 全文搜索</td></tr>
+    <tr style="border-bottom:1px solid #eee;"><td style="padding:6px 10px;font-weight:500;">🔥 每日热点</td><td style="padding:6px 10px;">AI 资讯早报自动展示</td></tr>
+    <tr style="border-bottom:1px solid #eee;"><td style="padding:6px 10px;font-weight:500;">📚 知识层</td><td style="padding:6px 10px;">概念卡/实体卡/素材摘要/对比/综述分类浏览</td></tr>
+    <tr style="border-bottom:1px solid #eee;"><td style="padding:6px 10px;font-weight:500;">💡 头脑风暴</td><td style="padding:6px 10px;">读库→追问→写回的知识复利闭环</td></tr>
+    <tr style="border-bottom:1px solid #eee;"><td style="padding:6px 10px;font-weight:500;">🤖 AI 对话</td><td style="padding:6px 10px;">提问入箱 → AI 读库回答 → 结果写回</td></tr>
+    <tr style="border-bottom:1px solid #eee;"><td style="padding:6px 10px;font-weight:500;">🛠 每日工作</td><td style="padding:6px 10px;">日历 + 工作记录 + 智能排期待办 + 依赖链</td></tr>
+    <tr style="border-bottom:1px solid #eee;"><td style="padding:6px 10px;font-weight:500;">💰 记账</td><td style="padding:6px 10px;">收支记录 + 分类联动 + 月度统计</td></tr>
+    <tr style="border-bottom:1px solid #eee;"><td style="padding:6px 10px;font-weight:500;">🏭 方案工坊</td><td style="padding:6px 10px;">方案组件 + 实战产出索引</td></tr>
+    <tr style="border-bottom:1px solid #eee;"><td style="padding:6px 10px;font-weight:500;">📋 运行档案</td><td style="padding:6px 10px;">操作日志时间线</td></tr>
+    <tr><td style="padding:6px 10px;font-weight:500;">📚 书架</td><td style="padding:6px 10px;">PDF/TXT 导入 · 阅读追踪 · 章节识别</td></tr>
+  </table>
+</div>
+
+<p class="note" style="margin-top:20px;">&#xA9; 知识工作台 · Knowledge Workbench · 上述所有数据均为示例占位数据</p>
+
+</body>
+</html>
