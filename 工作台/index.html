@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>__USER_NAME__的工作台</title>
+<link rel="stylesheet" href="style.css?v=20260808c">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar" id="sidebar">
+    <div class="logo">
+      <h1><span class="logo-mark">◆</span> __USER_NAME__的<b>工作台</b></h1>
+      <p>我的 AI 知识总战场</p>
+      <button class="side-collapse" id="sideCollapse" title="收起侧边栏">⟨</button>
+    </div>
+    <nav class="nav" id="nav">
+      <div class="nav-group">作战模块</div>
+      <div class="nav-item active" data-page="dashboard"><span class="ico">📊</span> 总览 Dashboard</div>
+      <div class="nav-item" data-page="graph"><span class="ico">🕸</span> 知识星图</div>
+      <div class="nav-item" data-page="library"><span class="ico">🗃</span> 素材库</div>
+      <div class="nav-item" data-page="hotspots"><span class="ico">🔥</span> 每日热点</div>
+      <div class="nav-item" data-page="wiki"><span class="ico">📚</span> 知识层</div>
+      <div class="nav-group">作战工具</div>
+      <div class="nav-item" data-page="brainstorm"><span class="ico">💡</span> 头脑风暴</div>
+      <div class="nav-item" data-page="ai"><span class="ico">🤖</span> AI 对话</div>
+      <div class="nav-grp">🏡 __USER_NAME__的日常</div>
+      <div class="nav-item sub" data-page="todo"><span class="ico">🛠</span> 每日工作</div>
+      <div class="nav-item sub" data-page="ledger"><span class="ico">💰</span> 记账</div>
+      <div class="nav-item" data-page="studio"><span class="ico">🏭</span> 方案工坊</div>
+      <div class="nav-item" data-page="archive"><span class="ico">🗒</span> 运行档案</div>
+      <div class="nav-item" data-page="bookshelf"><span class="ico">📚</span> 书架</div>
+    </nav>
+    <div class="side-foot">
+      <span id="statusDot" class="dot green"></span><span id="statusText">连接中…</span>
+    </div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <button class="side-expand" id="sideExpand" title="展开侧边栏">☰</button>
+      <span class="title" id="pageTitle">总览</span>
+      <span class="crumb" id="pageCrumb"></span>
+      <div class="search-box">
+        <input id="searchInput" placeholder="全库搜索…" />
+        <span class="kbd">⏎</span>
+      </div>
+    </div>
+    <div class="content" id="content"></div>
+  </div>
+</div>
+
+<div id="searchPanel" style="display:none"></div>
+
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/minisearch@7.1.1/dist/umd/index.min.js"></script>
+<!-- pdf.js 本地版（书架 PDF 阅读器，离线可用） -->
+<script defer src="assets/pdfjs/pdf.min.js?v=20260808g"></script>
+<!-- d3 懒加载（仅知识星图页面需要），由 app.js 动态注入 -->
+<script defer src="app.js?v=20260808g"></script>
+<script defer src="fx.js?v=20260808g"></script>
+</body>
+</html>
