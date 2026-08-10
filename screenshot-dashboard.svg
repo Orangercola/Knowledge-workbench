@@ -1,0 +1,123 @@
+<svg width="100%" viewBox="0 0 680 400" role="img" xmlns="http://www.w3.org/2000/svg">
+  <title>Dashboard layout schematic</title>
+  <desc>Knowledge Workbench Dashboard structure: sidebar navigation, stat cards, status overview, and todo list</desc>
+  <defs>
+    <style>
+      text { font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif; }
+      .t { font-size: 14px; font-weight: 500; fill: #3C3489; }
+      .ts { font-size: 12px; font-weight: 400; fill: #5F5E5A; }
+      .th { font-size: 14px; font-weight: 500; fill: #3C3489; }
+      .ti { font-size: 13px; font-weight: 400; fill: #3C3489; }
+      .tc { font-size: 11px; font-weight: 400; fill: #888780; }
+      .box { fill: #EEEDFE; stroke: #AFA9EC; }
+      .box-light { fill: #F1EFE8; stroke: #B4B2A9; }
+      .box-amber { fill: #FAEEDA; stroke: #EF9F27; }
+      .box-teal { fill: #E1F5EE; stroke: #1D9E75; }
+      .box-pink { fill: #FBEAF0; stroke: #D4537E; }
+      .box-coral { fill: #FAECE7; stroke: #D85A30; }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="680" height="400" fill="#FAFAFC" rx="12"/>
+
+  <rect x="8" y="8" width="148" height="384" fill="#F6F5FF" stroke="#E2DEF8" rx="8"/>
+  <text class="t" x="24" y="34">&#9670; 工作台</text>
+  <text class="tc" x="24" y="52">个人知识工作台</text>
+
+  <rect class="box" x="20" y="66" width="124" height="28" rx="6"/>
+  <text class="ts" x="32" y="85" fill="#534AB7">&#x1F4CA; 总览</text>
+
+  <rect x="20" y="100" width="124" height="28" rx="6" fill="transparent"/>
+  <text class="ts" x="32" y="119">&#x1F578; 知识星图</text>
+  <rect x="20" y="132" width="124" height="28" rx="6" fill="transparent"/>
+  <text class="ts" x="32" y="151">&#x1F5C3; 素材库</text>
+  <rect x="20" y="164" width="124" height="28" rx="6" fill="transparent"/>
+  <text class="ts" x="32" y="183">&#x1F525; 每日热点</text>
+
+  <line x1="20" y1="204" x2="148" y2="204" stroke="#E2DEF8" stroke-width="0.5"/>
+
+  <text class="tc" x="24" y="224">个人日常</text>
+  <rect x="20" y="234" width="124" height="28" rx="6" fill="transparent"/>
+  <text class="ts" x="32" y="253">&#x1F6E0; 每日工作</text>
+  <rect x="20" y="266" width="124" height="28" rx="6" fill="transparent"/>
+  <text class="ts" x="32" y="285">&#x1F4B0; 记账</text>
+  <rect x="20" y="298" width="124" height="28" rx="6" fill="transparent"/>
+  <text class="ts" x="32" y="317">&#x1F3ED; 方案工坊</text>
+
+  <line x1="20" y1="344" x2="148" y2="344" stroke="#E2DEF8" stroke-width="0.5"/>
+  <rect x="20" y="354" width="124" height="28" rx="6" fill="transparent"/>
+  <text class="ts" x="32" y="373">&#x1F4DA; 书架</text>
+
+  <rect x="172" y="12" width="496" height="44" fill="#EEEDFE" stroke="#AFA9EC" rx="8"/>
+  <text class="th" x="196" y="31" fill="#534AB7">&#x1F3E0; 知识总览</text>
+  <text class="tc" x="296" y="31">知识库统计数据与待办概览</text>
+  <text class="tc" x="560" y="31">&#x26A1; 更新于: 刚刚</text>
+
+  <rect class="box" x="176" y="66" width="100" height="58" rx="8"/>
+  <text class="tc" x="196" y="84">知识层</text>
+  <text class="th" x="196" y="108" fill="#534AB7">128</text>
+  <text class="tc" x="226" y="108">页</text>
+
+  <rect class="box-teal" x="284" y="66" width="100" height="58" rx="8"/>
+  <text class="tc" x="304" y="84">素材转换</text>
+  <text class="th" x="304" y="108" fill="#0F6E56">45</text>
+  <text class="tc" x="334" y="108">篇</text>
+
+  <rect class="box-pink" x="392" y="66" width="100" height="58" rx="8"/>
+  <text class="tc" x="412" y="84">对比综述</text>
+  <text class="th" x="412" y="108" fill="#993556">12</text>
+  <text class="tc" x="442" y="108">篇</text>
+
+  <rect class="box-amber" x="500" y="66" width="108" height="58" rx="8"/>
+  <text class="tc" x="520" y="84">待办完成度</text>
+  <circle cx="532" cy="98" r="16" fill="none" stroke="#EF9F27" stroke-width="4" stroke-dasharray="75 25"/>
+  <text class="th" x="532" y="103" text-anchor="middle" fill="#BA7517" font-size="10px">75%</text>
+  <text class="tc" x="580" y="96">8/12</text>
+  <text class="tc" x="580" y="110">已完成</text>
+
+  <rect x="176" y="132" width="236" height="120" fill="#F6F5FF" stroke="#E2DEF8" rx="8"/>
+  <text class="th" x="196" y="152" fill="#534AB7">战场状态</text>
+  <text class="ts" x="196" y="172">闭环流程: 素材采集  >  摘要提炼  >  知识编译</text>
+  <text class="ts" x="196" y="190">当前阶段: 知识编译 (进行中)</text>
+  <text class="ts" x="196" y="208">模块状态: 概念库 &#x2705; 实体库 &#x2705; 对比库 &#x2705;</text>
+  <text class="ts" x="196" y="226">          素材摘要 &#x2705; 综述 &#x25CB; 主题 &#x25CB;</text>
+
+  <rect x="420" y="132" width="252" height="120" fill="#FFF" stroke="#E2DEF8" rx="8"/>
+  <text class="th" x="440" y="152" fill="#534AB7">作战清单</text>
+
+  <rect class="box-coral" x="436" y="162" width="28" height="20" rx="4"/>
+  <text class="tc" x="450" y="176" text-anchor="middle" fill="#712B13">P0</text>
+  <text class="ti" x="472" y="177">知识星图交付 (工作台+报告)</text>
+
+  <rect class="box-amber" x="436" y="188" width="28" height="20" rx="4"/>
+  <text class="tc" x="450" y="202" text-anchor="middle" fill="#854F0B">P1</text>
+  <text class="ti" x="472" y="203">每日热点自动化采集</text>
+
+  <rect x="436" y="214" width="28" height="20" fill="#F1EFE8" stroke="#B4B2A9" rx="4"/>
+  <text class="tc" x="450" y="228" text-anchor="middle" fill="#5F5E5A">P2</text>
+  <text class="ti" x="472" y="229">阅读进度自动汇总</text>
+
+  <rect x="176" y="260" width="236" height="100" fill="#FFF" stroke="#E2DEF8" rx="8"/>
+  <text class="th" x="196" y="280" fill="#534AB7">素材分布</text>
+
+  <text class="tc" x="196" y="302">制度政策</text>
+  <rect x="264" y="293" width="108" height="12" fill="#EEEDFE" rx="4"/>
+  <rect x="264" y="293" width="86" height="12" fill="#AFA9EC" rx="4"/>
+
+  <text class="tc" x="196" y="322">汇报交流</text>
+  <rect x="264" y="313" width="108" height="12" fill="#EEEDFE" rx="4"/>
+  <rect x="264" y="313" width="65" height="12" fill="#AFA9EC" rx="4"/>
+
+  <text class="tc" x="196" y="342">技术能力</text>
+  <rect x="264" y="333" width="108" height="12" fill="#EEEDFE" rx="4"/>
+  <rect x="264" y="333" width="52" height="12" fill="#AFA9EC" rx="4"/>
+
+  <rect x="420" y="260" width="252" height="100" fill="#FFF" stroke="#E2DEF8" rx="8"/>
+  <text class="th" x="440" y="280" fill="#534AB7">最近操作</text>
+  <text class="ts" x="440" y="300">08-09 15:30  审核通过: 数据空间概念卡</text>
+  <text class="ts" x="440" y="318">08-09 14:20  新增素材: 政务数据管理办法</text>
+  <text class="ts" x="440" y="336">08-09 11:05  生成对比: A vs B 平台方案</text>
+  <text class="ts" x="440" y="354">08-09 09:30  待办完成: 知识星图初稿</text>
+
+  <text class="tc" x="620" y="392" text-anchor="end">示意图 - 不含真实数据</text>
+</svg>

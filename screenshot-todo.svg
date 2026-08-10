@@ -1,0 +1,104 @@
+<svg width="100%" viewBox="0 0 680 420" role="img" xmlns="http://www.w3.org/2000/svg">
+  <title>Daily work and calendar layout schematic</title>
+  <desc>Knowledge Workbench daily work view: month calendar, work records, todo items, and bookkeeping</desc>
+  <defs>
+    <style>
+      text { font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif; }
+      .t { font-size: 14px; font-weight: 500; fill: #3C3489; }
+      .ts { font-size: 12px; font-weight: 400; fill: #5F5E5A; }
+      .th { font-size: 14px; font-weight: 500; fill: #3C3489; }
+      .tc { font-size: 11px; font-weight: 400; fill: #888780; }
+      .td { font-size: 10px; font-weight: 400; fill: #5F5E5A; }
+      .cal-cell { fill: #FFF; stroke: #E2DEF8; }
+      .cal-header { fill: #F6F5FF; stroke: #E2DEF8; }
+      .cal-today { fill: #EEEDFE; stroke: #AFA9EC; }
+      .cal-marker { fill: #FAEEDA; stroke: #EF9F27; }
+      .tab-active { fill: #534AB7; }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="680" height="420" fill="#FAFAFC" rx="12"/>
+
+  <text class="th" x="20" y="28">&#x1F5D3; 2026年 8月</text>
+
+  <line x1="16" y1="40" x2="90" y2="40" stroke="#EF9F27" stroke-width="2"/>
+  <rect x="16" y="38" width="680" height="1" fill="none"/>
+
+  <rect class="cal-cell" x="16" y="44" width="88" height="26" rx="4"/>
+  <text class="td" x="60" y="61" text-anchor="middle" fill="#888780">日</text>
+  <rect class="cal-cell" x="108" y="44" width="88" height="26" rx="4"/>
+  <text class="td" x="152" y="61" text-anchor="middle" fill="#888780">一</text>
+  <rect class="cal-cell" x="200" y="44" width="88" height="26" rx="4"/>
+  <text class="td" x="244" y="61" text-anchor="middle" fill="#888780">二</text>
+  <rect class="cal-cell" x="292" y="44" width="88" height="26" rx="4"/>
+  <text class="td" x="336" y="61" text-anchor="middle" fill="#888780">三</text>
+  <rect class="cal-cell" x="384" y="44" width="88" height="26" rx="4"/>
+  <text class="td" x="428" y="61" text-anchor="middle" fill="#888780">四</text>
+  <rect class="cal-cell" x="476" y="44" width="88" height="26" rx="4"/>
+  <text class="td" x="520" y="61" text-anchor="middle" fill="#888780">五</text>
+  <rect class="cal-cell" x="568" y="44" width="88" height="26" rx="4"/>
+  <text class="td" x="612" y="61" text-anchor="middle" fill="#888780">六</text>
+
+  <rect class="cal-cell" x="568" y="74" width="88" height="36" rx="4"/>
+  <text class="ts" x="612" y="97" text-anchor="middle" fill="#B4B2A9">1</text>
+
+  <rect class="cal-cell" x="16" y="74" width="88" height="36" rx="4"/>
+  <text class="ts" x="60" y="97" text-anchor="middle">3</text>
+  <rect class="cal-cell" x="108" y="74" width="88" height="36" rx="4"/>
+  <text class="ts" x="152" y="97" text-anchor="middle">4</text>
+  <rect class="cal-cell" x="200" y="74" width="88" height="36" rx="4"/>
+  <text class="ts" x="244" y="97" text-anchor="middle">5</text>
+
+  <rect class="cal-marker" x="292" y="74" width="88" height="36" rx="4"/>
+  <text class="th" x="336" y="92" text-anchor="middle" fill="#854F0B">6</text>
+  <text class="tc" x="336" y="107" text-anchor="middle" fill="#BA7517">待 2</text>
+
+  <rect class="cal-cell" x="384" y="74" width="88" height="36" rx="4"/>
+  <text class="ts" x="428" y="97" text-anchor="middle">7</text>
+  <rect class="cal-cell" x="476" y="74" width="88" height="36" rx="4"/>
+  <text class="ts" x="520" y="97" text-anchor="middle">8</text>
+
+  <rect class="cal-today" x="568" y="114" width="88" height="36" rx="4"/>
+  <text class="th" x="612" y="132" text-anchor="middle" fill="#534AB7">10</text>
+  <line x1="578" y1="142" x2="646" y2="142" stroke="#7F77DD" stroke-width="1.5"/>
+
+  <rect x="16" y="158" width="88" height="36" fill="#FFF" stroke="#E2DEF8" rx="4" stroke-dasharray="3,3"/>
+  <rect x="108" y="158" width="88" height="36" fill="#FFF" stroke="#E2DEF8" rx="4" stroke-dasharray="3,3"/>
+  <rect x="200" y="158" width="88" height="36" fill="#FFF" stroke="#E2DEF8" rx="4" stroke-dasharray="3,3"/>
+  <rect x="292" y="158" width="88" height="36" fill="#FFF" stroke="#E2DEF8" rx="4" stroke-dasharray="3,3"/>
+  <rect x="384" y="158" width="88" height="36" fill="#FFF" stroke="#E2DEF8" rx="4" stroke-dasharray="3,3"/>
+  <rect x="476" y="158" width="88" height="36" fill="#FFF" stroke="#E2DEF8" rx="4" stroke-dasharray="3,3"/>
+  <rect x="568" y="158" width="88" height="36" fill="#FFF" stroke="#E2DEF8" rx="4" stroke-dasharray="3,3"/>
+
+  <rect x="16" y="202" width="648" height="28" rx="6" fill="#F6F5FF" stroke="#E2DEF8"/>
+  <rect x="20" y="206" width="84" height="20" fill="#534AB7" rx="5"/>
+  <text class="ts" x="62" y="221" text-anchor="middle" fill="#FFF">每日工作</text>
+  <rect x="110" y="206" width="84" height="20" fill="transparent" rx="5"/>
+  <text class="ts" x="152" y="221" text-anchor="middle">待办事项</text>
+  <rect x="200" y="206" width="84" height="20" fill="transparent" rx="5"/>
+  <text class="ts" x="242" y="221" text-anchor="middle">已办结</text>
+  <rect x="290" y="206" width="84" height="20" fill="transparent" rx="5"/>
+  <text class="ts" x="332" y="221" text-anchor="middle">记账手册</text>
+  <text class="tc" x="600" y="221" text-anchor="end">&#x2795; 新增</text>
+
+  <rect x="16" y="238" width="648" height="74" fill="#FFF" stroke="#E2DEF8" rx="8"/>
+  <line x1="16" y1="262" x2="664" y2="262" stroke="#F1EFE8" stroke-width="0.5"/>
+  <text class="tc" x="48" y="254" text-anchor="middle">时间</text>
+  <text class="tc" x="356" y="254" text-anchor="middle">工作内容</text>
+  <line x1="90" y1="238" x2="90" y2="312" stroke="#F1EFE8" stroke-width="0.5"/>
+  <text class="ts" x="48" y="280" text-anchor="middle">09:30</text>
+  <text class="ts" x="356" y="280">参加项目评审会议</text>
+  <line x1="16" y1="294" x2="664" y2="294" stroke="#F1EFE8" stroke-width="0.5"/>
+  <text class="ts" x="48" y="306" text-anchor="middle">14:00</text>
+  <text class="ts" x="356" y="306">处理合同签署流程</text>
+
+  <rect x="16" y="320" width="320" height="52" fill="#FFF" stroke="#E2DEF8" rx="8"/>
+  <text class="th" x="36" y="340" fill="#534AB7">&#x2611; 已办结</text>
+  <text class="ts" x="36" y="360">08-06 项目评审通过  ·  08-05 合同流程完成</text>
+
+  <rect x="344" y="320" width="320" height="52" fill="#FFF" stroke="#E2DEF8" rx="8"/>
+  <text class="th" x="364" y="340" fill="#534AB7">&#x1F4B0; 记账</text>
+  <text class="ts" x="364" y="360">午餐 28 元  ·  饮品 12.9 元  ·  本月累计 1,086 元</text>
+
+  <text class="tc" x="620" y="412" text-anchor="end">示意图 - 不含真实数据</text>
+</svg>
