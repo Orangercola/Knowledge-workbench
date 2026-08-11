@@ -4,14 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>__USER_NAME__的工作台</title>
-<link rel="stylesheet" href="style.css?v=20260808c">
+<link rel="stylesheet" href="style.css?v=20260811f">
 </head>
 <body>
 <div class="app">
   <aside class="sidebar" id="sidebar">
     <div class="logo">
       <h1><span class="logo-mark">◆</span> __USER_NAME__的<b>工作台</b></h1>
-      <p>个人 AI 知识工作台</p>
+      <p>我的 AI 知识总战场 · 数据要素</p>
       <button class="side-collapse" id="sideCollapse" title="收起侧边栏">⟨</button>
     </div>
     <nav class="nav" id="nav">
@@ -42,7 +42,7 @@
       <span class="title" id="pageTitle">总览</span>
       <span class="crumb" id="pageCrumb"></span>
       <div class="search-box">
-        <input id="searchInput" placeholder="全库搜索…" />
+        <input id="searchInput" placeholder="全库搜索：可信数据空间 / 政务平台 / 价格…" />
         <span class="kbd">⏎</span>
       </div>
     </div>
@@ -52,12 +52,39 @@
 
 <div id="searchPanel" style="display:none"></div>
 
+<!-- 彩蛋：朱敦儒两首词对比卡（Logo 五连击触发） -->
+<div id="easterEgg" class="egg-overlay">
+  <div class="egg-card">
+    <button class="egg-close" title="关闭">×</button>
+    <div class="egg-header">
+      <span class="egg-badge young">少</span>
+      <span class="egg-title">朱敦儒 · 年少《鹧鸪天》</span>
+    </div>
+    <div class="egg-body">
+      <div class="egg-poem young">
+        我是清都山水郎，天教分付与疏狂。<br>
+        曾批给露支风敕，累奏留云借月章。<br>
+        诗万首，酒千觞。几曾着眼看侯王。<br>
+        玉楼金阙慵归去，且插梅花醉洛阳。
+      </div>
+      <div class="egg-divider"><span>时</span><span>光</span></div>
+      <div class="egg-poem old">
+        世事短如春梦，人情薄似秋云。<br>
+        不须计较苦劳心。万事元来有命。<br>
+        幸遇三杯酒好，况逢一朵花新。<br>
+        片时欢笑且相亲。明日阴晴未定。
+      </div>
+    </div>
+    <div class="egg-footer">几曾着眼看侯王 → 不须计较苦劳心</div>
+  </div>
+</div>
+
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/minisearch@7.1.1/dist/umd/index.min.js"></script>
 <!-- pdf.js 本地版（书架 PDF 阅读器，离线可用） -->
 <script defer src="assets/pdfjs/pdf.min.js?v=20260808g"></script>
 <!-- d3 懒加载（仅知识星图页面需要），由 app.js 动态注入 -->
-<script defer src="app.js?v=20260808g"></script>
-<script defer src="fx.js?v=20260808g"></script>
+<script defer src="app.js?v=20260811f"></script>
+<script defer src="fx.js?v=20260811f"></script>
 </body>
 </html>

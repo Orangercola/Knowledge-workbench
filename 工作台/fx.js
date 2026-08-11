@@ -116,3 +116,55 @@
     setTimeout(() => enhance(content), 150);
   }
 })();
+
+/* ============================================================
+   彩蛋层 · 朱敦儒词句（隐藏彩蛋，与功能无耦合）
+   - 层 1：侧边栏底部随机词句（紫=年少/琥珀=年老）
+   - 层 2：Logo 五连击 → 全屏两首词对比卡
+   ============================================================ */
+(() => {
+  const VERSES = [
+    { text: "我是清都山水郎，天教分付与疏狂。", src: "朱敦儒《鹧鸪天·西都作》", era: "少" },
+    { text: "诗万首，酒千觞。几曾着眼看侯王。", src: "朱敦儒《鹧鸪天·西都作》", era: "少" },
+    { text: "玉楼金阙慵归去，且插梅花醉洛阳。", src: "朱敦儒《鹧鸪天·西都作》", era: "少" },
+    { text: "世事短如春梦，人情薄似秋云。", src: "朱敦儒《西江月》", era: "老" },
+    { text: "不须计较苦劳心。万事元来有命。", src: "朱敦儒《西江月》", era: "老" },
+    { text: "幸遇三杯酒好，况逢一朵花新。", src: "朱敦儒《西江月》", era: "老" },
+    { text: "片时欢笑且相亲。明日阴晴未定。", src: "朱敦儒《西江月》", era: "老" },
+  ];
+
+  // 层 1：侧边栏底部随机词句
+  const foot = document.querySelector(".side-foot");
+  if (foot) {
+    const v = VERSES[Math.floor(Math.random() * VERSES.length)];
+    const el = document.createElement("div");
+    el.className = "egg-verse";
+    el.innerHTML =
+      `<span class="egg-era ${v.era === "少" ? "young" : "old"}">${v.era}</span>` +
+      `<span class="egg-text">${v.text}</span>`;
+    el.title = v.src;
+    foot.appendChild(el);
+  }
+
+  // 层 2：Logo 五连击（1.2s 内点满 5 次）
+  const logo = document.querySelector(".sidebar .logo");
+  if (logo) {
+    let clicks = 0, timer = null;
+    logo.addEventListener("click", () => {
+      clicks++;
+      clearTimeout(timer);
+      timer = setTimeout(() => (clicks = 0), 1200);
+      if (clicks >= 5) {
+        clicks = 0;
+        const egg = document.getElementById("easterEgg");
+        if (egg) egg.classList.add("show");
+      }
+    });
+    document.addEventListener("click", (e) => {
+      const egg = document.getElementById("easterEgg");
+      if (egg && egg.classList.contains("show")) {
+        if (e.target === egg || e.target.closest(".egg-close")) egg.classList.remove("show");
+      }
+    });
+  }
+})();

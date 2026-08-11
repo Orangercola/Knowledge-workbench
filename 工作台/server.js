@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 知识工作台 — 本地服务（零依赖）
+ * 数据要素知识工作台 — 本地服务（零依赖）
  * 静态文件 + 知识库 API。启动：node server.js [port]
  */
 "use strict";
@@ -14,7 +14,7 @@ const { URL } = require("url");
 const KB_ROOT = process.env.WB_KB_ROOT || "__KB_ROOT__";
 const APP_DIR = __dirname;
 const PORT = Number(process.argv[2] || process.env.PORT || 5173);
-const AI_SERVICE_AUTOMATION_ID = "__AI_AUTOMATION_ID__"; // 「工作台 AI 对话服务」（需在 WorkBuddy 中创建同名自动化）
+const AI_SERVICE_AUTOMATION_ID = "automation-1786021150970"; // 「🤖 工作台 AI 对话服务」
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -43,6 +43,32 @@ function safeJoin(base, rel) {
 function readJson(res, obj) {
   res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
   res.end(JSON.stringify(obj));
+}
+
+/* Windows 文件锁重试写：Obsidian/搜索索引可能占用文件句柄 → EPERM/EBUSY。
+   等待后重试，最长约 12s（覆盖 Obsidian 短暂读取、索引扫描等场景）。 */
+function writeFileRetry(file, data, opts = {}) {
+  const { retries = 20, delayMs = 600, encoding } = opts;
+  let lastErr;
+  for (let i = 0; i < retries; i++) {
+    try {
+      fs.writeFileSync(file, data, encoding || "utf-8");
+      return;
+    } catch (e) {
+      lastErr = e;
+      if (e.code !== "EPERM" && e.code !== "EACCES" && e.code !== "EBUSY") throw e;
+      if (i < retries - 1) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs);
+    }
+  }
+  throw lastErr;
+}
+
+/* 把文件锁错误翻译成可读提示 */
+function friendlyFileErr(e, file) {
+  if (e && (e.code === "EPERM" || e.code === "EBUSY" || e.code === "EACCES")) {
+    return `文件被其他程序占用（常见：Obsidian 正打开此文件）。请在 Obsidian 中关闭「${path.basename(file)}」后重试。`;
+  }
+  return e && e.message ? e.message : String(e);
 }
 
 function parseFrontmatter(text) {
@@ -577,6 +603,29 @@ function apiDaily(req, cb) {
   } catch (e) { cb({ error: e.message }); }
 }
 
+/* GET /api/ledger?from=YYYY-MM-DD&to=YYYY-MM-DD 跨日账目查询（筛选汇总用），每条带所属日期 */
+function apiLedger(from, to) {
+  const f = from && /^\d{4}-\d{2}-\d{2}$/.test(from) ? from : "1970-01-01";
+  const t = to && /^\d{4}-\d{2}-\d{2}$/.test(to) ? to : "2999-12-31";
+  const out = [];
+  try {
+    const ddir = path.join(KB_ROOT, "日常");
+    for (const file of fs.readdirSync(ddir)) {
+      const m = file.match(/^(\d{4}-\d{2}-\d{2})\.md$/);
+      if (!m) continue;
+      const date = m[1];
+      if (date < f || date > t) continue;
+      const text = fs.readFileSync(path.join(ddir, file), "utf-8");
+      for (const line of text.split(/\r?\n/)) {
+        const em = line.match(/^\|\s*([\d:：.\s]*)\s*\|\s*(收入|支出)\s*\|\s*([^|]*)\s*\|\s*([^|]*)\s*\|\s*([\d.]+)\s*\|\s*([^|]*)\s*\|/);
+        if (em) out.push({ date, time: em[1].trim(), type: em[2], cat: em[3].trim(), subcat: em[4].trim() || undefined, amount: Number(em[5]), note: em[6].trim() });
+      }
+    }
+  } catch {}
+  out.sort((a, b) => (a.date === b.date ? (a.time || "").localeCompare(b.time || "") : a.date.localeCompare(b.date)));
+  return { ok: true, entries: out, total: out.length };
+}
+
 function apiMeetings() {
   /* 全库会议纪要文件列表：匹配「纪要/会议」关键词的 md 转换稿 */
   const out = [];
@@ -741,11 +790,18 @@ function apiReview(req, cb) {
       } else {
         text = text.replace(/^---\n/, `---\nreview: ${to}\n`);
       }
-      fs.writeFileSync(filePath, text, "utf-8");
+      try {
+        writeFileRetry(filePath, text);
+      } catch (e) {
+        cb({ ok: false, error: friendlyFileErr(e, filePath) });
+        return;
+      }
       /* 追加操作日志 */
       try {
         const logPath = path.join(KB_ROOT, "知识层", "_操作日志.md");
-        fs.appendFileSync(logPath, `- [${new Date().toLocaleString("zh-CN", { hour12: false })}] review | ${to === "done" ? "✅ 确认通过" : "🔁 打回重写"} | ${rel}\n`, "utf-8");
+        const line = `- [${new Date().toLocaleString("zh-CN", { hour12: false })}] review | ${to === "done" ? "✅ 确认通过" : "🔁 打回重写"} | ${rel}\n`;
+        const prev = fs.existsSync(logPath) ? fs.readFileSync(logPath, "utf-8") : "";
+        writeFileRetry(logPath, prev + line);
       } catch {}
       cb({ ok: true, rel, review: to });
     } catch (e) {
@@ -937,6 +993,7 @@ const server = http.createServer((req, res) => {
       if (p === "/api/review") return apiReview(req, (r) => readJson(res, r));
       if (p === "/api/daily") return apiDaily(req, (r) => readJson(res, r));
       if (p === "/api/daily/list") return readJson(res, apiDailyList());
+      if (p === "/api/ledger") return readJson(res, apiLedger(u.searchParams.get("from"), u.searchParams.get("to")));
       if (p === "/api/categories") return readJson(res, apiCategories());
       if (p === "/api/meetings") return readJson(res, apiMeetings());
       if (p === "/api/meetings/upload") return apiMeetingsUpload(req, (r) => readJson(res, r));
@@ -979,6 +1036,6 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`工作台已启动 → http://localhost:${PORT}`);
+  console.log(`🗺 数据要素知识工作台 → http://localhost:${PORT}`);
   console.log(`   知识库: ${KB_ROOT}`);
 });

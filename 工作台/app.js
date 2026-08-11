@@ -288,20 +288,24 @@ function renderReaderWithAI(el, rel, f, opts = {}) {
   el.innerHTML = `
     <div class="ai-split">
       <div class="ai-doc">
-        <div class="read-toolbar">
-          ${splitHost ? `<button class="btn ghost read-back" style="padding:5px 12px;font-size:12px;">← 返回列表</button>` : ""}
-          <span class="read-title" title="${esc(rel)}">${esc(title)}</span>
-          <div class="read-font">
-            <button id="fontMinus" title="减小字号">A−</button>
-            <span id="fontVal">${readerFontSize}px</span>
-            <button id="fontPlus" title="增大字号">A+</button>
+        <div class="read-head">
+          <div class="read-toolbar">
+            ${splitHost ? `<button class="btn ghost read-back" style="padding:5px 12px;font-size:12px;">← 返回列表</button>` : ""}
+            <span class="read-title" title="${esc(rel)}">${esc(title)}</span>
+            <div class="read-font">
+              <button id="fontMinus" title="减小字号">A−</button>
+              <span id="fontVal">${readerFontSize}px</span>
+              <button id="fontPlus" title="增大字号">A+</button>
+            </div>
           </div>
+          <div class="fm-line mono">${esc(rel)}</div>
         </div>
-        <div class="fm-line mono" style="margin-bottom:8px;">${esc(rel)}</div>
-        ${renderFm(f.fm)}
-        <div class="reader">${mdToHtml(f.body, relDir(rel))}</div>
-        ${sourceBlockHtml(f.fm, f.body)}
-        ${f.links && f.links.length ? `<div style="margin-top:20px;border-top:1px solid var(--line);padding-top:12px;font-size:12px;color:var(--text3);">🔗 出链 ${f.links.length}：${f.links.map((l) => `<a class="wikilink" data-t="${esc(l)}">${esc(l)}</a>`).join(" · ")}</div>` : ""}
+        <div class="ai-doc-body">
+          ${renderFm(f.fm)}
+          <div class="reader">${mdToHtml(f.body, relDir(rel))}</div>
+          ${sourceBlockHtml(f.fm, f.body)}
+          ${f.links && f.links.length ? `<div style="margin-top:20px;border-top:1px solid var(--line);padding-top:12px;font-size:12px;color:var(--text3);">🔗 出链 ${f.links.length}：${f.links.map((l) => `<a class="wikilink" data-t="${esc(l)}">${esc(l)}</a>`).join(" · ")}</div>` : ""}
+        </div>
       </div>
       <aside class="ai-panel">
         <div class="panel-tabs">
@@ -561,7 +565,7 @@ async function openFile(rel, opts = {}) {
   const isPending = f.fm && f.fm.review === "pending";
   $("#content").innerHTML = `
     <div class="page active">
-      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap;">
+      <div class="page-file-head" style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap;">
         <button class="btn ghost" onclick="goBack()">← 返回</button>
         <span class="page-h" style="margin:0;">${esc(f.fm.title || rel.split("/").pop().replace(".md", ""))}</span>
         ${isPending ? `
@@ -1502,12 +1506,33 @@ let dailyMonth = dailyDate.slice(0, 7);
 let dailyState = { todos: [], works: [], entries: [], done: [], allTodos: [] };
 let meetingList = [];
 let catData = { expense: [], income: [] };
+/* 待办 / 记账 两页各自独立的日历上下文（选中日期 · 月份 · 当天数据），切页互不干扰 */
+let activeScope = null;
+const calCtx = {
+  todo: { date: fmtDate(new Date()), month: dailyMonth, state: { todos: [], works: [], entries: [], done: [], allTodos: [], allDone: [] } },
+  ledger: { date: fmtDate(new Date()), month: dailyMonth, state: { todos: [], works: [], entries: [], done: [], allTodos: [], allDone: [] } }
+};
+function swapCalContext(scope) {
+  /* 真正跨页切换时才存档当前页上下文（含最新选中日期与数据） */
+  if (activeScope && activeScope !== scope && dailyDate && dailyState) calCtx[activeScope] = { date: dailyDate, month: dailyMonth, state: dailyState };
+  /* 同页重渲染（如点击日历切日期）时保持当前日期不动，仅首次进入该页时恢复上次上下文 */
+  if (activeScope !== scope) {
+    const ctx = calCtx[scope] || calCtx.todo;
+    dailyDate = ctx.date; dailyMonth = ctx.month || ctx.date.slice(0, 7);
+    dailyState = ctx.state || { todos: [], works: [], entries: [], done: [], allTodos: [], allDone: [] };
+    activeScope = scope;
+  }
+}
 function dateNavHTML() {
   dailyMonth = dailyMonth || dailyDate.slice(0, 7);
-  return `<div class="card daily-cal-card" style="margin-bottom:14px;">
+  const isTodo = activeScope === "todo";
+  const legend = isTodo
+    ? `<span><i class="lg-todo"></i> 有待办</span><span><i class="lg-done"></i> 已完成</span><span><i class="lg-overdue"></i> 已超时</span><span><i class="lg-selected"></i> 选中</span>`
+    : `<span><i class="lg-exp"></i> 支出</span><span><i class="lg-inc"></i> 收入</span><span><i class="lg-selected"></i> 选中</span>`;
+  return `<div class="card daily-cal-card" style="margin-bottom:10px;">
     <div class="dcal-top">
       <div>
-        <div class="dcal-title">${dailyMonth.replace("-", "年")}月</div>
+        <div class="dcal-title">${isTodo ? "📋" : "💰"} ${dailyMonth.replace("-", "年")}月</div>
         <div class="dcal-sub">当前选中：${dailyDate} · ${weekdayCN(dailyDate)}</div>
       </div>
       <div class="dcal-actions">
@@ -1519,11 +1544,7 @@ function dateNavHTML() {
     </div>
     <div class="dcal-weekrow">${["一", "二", "三", "四", "五", "六", "日"].map((w) => `<span>${w}</span>`).join("")}</div>
     <div class="daily-calendar" id="dCalendarGrid"><div class="dcal-loading">日历加载中…</div></div>
-    <div class="dcal-legend">
-      <span><i class="lg-todo"></i> 有待办日期标黄</span>
-      <span><i class="lg-done"></i> 已办结日期底部蓝线</span>
-      <span><i class="lg-selected"></i> 当前选中日期</span>
-    </div>
+    <div class="dcal-legend">${legend}</div>
   </div>`;
 }
 async function loadDailyBase() {
@@ -1537,12 +1558,19 @@ async function loadDailyBase() {
   await renderDailyCalendar(list);
   return d;
 }
+/* 金额精简显示：-¥128 / +¥50.5（去多余小数零） */
+function fmtMoneyShort(n) {
+  const v = Number(n) || 0;
+  if (v % 1 === 0) return String(v);
+  return v.toFixed(2).replace(/\.?0+$/, "");
+}
 async function renderDailyCalendar(list) {
   const grid = $("#dCalendarGrid");
   const title = document.querySelector(".dcal-title");
   const sub = document.querySelector(".dcal-sub");
   if (!grid) return;
-  if (title) title.textContent = dailyMonth.replace("-", "年") + "月";
+  const isTodo = activeScope === "todo";
+  if (title) title.textContent = `${isTodo ? "📋" : "💰"} ${dailyMonth.replace("-", "年")}月`;
   if (sub) sub.textContent = `当前选中：${dailyDate} · ${weekdayCN(dailyDate)}`;
   grid.innerHTML = `<div class="dcal-loading">日历加载中…</div>`;
   const monthDates = (list || []).filter((x) => x.startsWith(dailyMonth));
@@ -1550,14 +1578,22 @@ async function renderDailyCalendar(list) {
   await Promise.all(monthDates.map(async (date) => {
     try {
       const d = date === dailyDate ? dailyState : await api("/api/daily?date=" + date);
-      const todos = d.todos || [];
-      const done = d.done || [];
-      status[date] = {
-        todo: todos.length,
-        openTodo: todos.filter((t) => !t.done).length,
-        done: done.length,
-      };
-    } catch { status[date] = { todo: 0, openTodo: 0, done: 0 }; }
+      if (isTodo) {
+        const todos = d.todos || [];
+        const open = todos.filter((t) => !t.done).length;
+        status[date] = {
+          openTodo: open,
+          done: (d.done || []).length + todos.filter((t) => t.done).length,
+          overdue: open
+        };
+      } else {
+        const entries = d.entries || [];
+        status[date] = {
+          exp: entries.filter((e) => e.type === "支出").reduce((s, e) => s + (Number(e.amount) || 0), 0),
+          inc: entries.filter((e) => e.type === "收入").reduce((s, e) => s + (Number(e.amount) || 0), 0)
+        };
+      }
+    } catch { status[date] = isTodo ? { openTodo: 0, done: 0, overdue: 0 } : { exp: 0, inc: 0 }; }
   }));
   const [y, m] = dailyMonth.split("-").map(Number);
   const first = new Date(y, m - 1, 1);
@@ -1568,15 +1604,36 @@ async function renderDailyCalendar(list) {
   for (let i = 0; i < offset; i++) cells.push(`<div class="dcal-empty"></div>`);
   for (let day = 1; day <= days; day++) {
     const date = `${dailyMonth}-${String(day).padStart(2, "0")}`;
-    const st = status[date] || { todo: 0, openTodo: 0, done: 0 };
+    const st = status[date] || { openTodo: 0, done: 0, overdue: 0, exp: 0, inc: 0 };
     const cls = ["dcal-day"];
     if (date === dailyDate) cls.push("selected");
     if (date === today) cls.push("today");
-    if (st.todo > 0) cls.push("has-todo");
-    if (st.done > 0) cls.push("has-done");
-    cells.push(`<button class="${cls.join(" ")}" data-date="${date}" title="${date}${st.todo ? ` · 待办 ${st.todo}` : ""}${st.done ? ` · 已办 ${st.done}` : ""}">
+    let counts = "";
+    let tip = date;
+    if (isTodo) {
+      const overdue = st.overdue > 0 && date < today;
+      if (overdue) cls.push("has-overdue");
+      else if (st.openTodo > 0) cls.push("has-todo");
+      if (st.done > 0) cls.push("has-done");
+      const bits = [];
+      if (overdue) bits.push(`<i class="o">超 ${st.overdue}</i>`);
+      else if (st.openTodo > 0) bits.push(`<i class="t">待 ${st.openTodo}</i>`);
+      if (st.done > 0) bits.push(`<i class="d">完 ${st.done}</i>`);
+      counts = bits.length ? `<span class="dcal-counts">${bits.join("")}</span>` : "";
+      tip = `${date}${overdue ? ` · 超时 ${st.overdue}` : st.openTodo ? ` · 待办 ${st.openTodo}` : ""}${st.done ? ` · 已完成 ${st.done}` : ""}`;
+    } else {
+      const hasExp = st.exp > 0, hasInc = st.inc > 0;
+      if (hasExp) cls.push("has-exp");
+      if (hasInc) cls.push("has-inc");
+      const bits = [];
+      if (hasExp) bits.push(`<i class="exp">-¥${fmtMoneyShort(st.exp)}</i>`);
+      if (hasInc) bits.push(`<i class="inc">+¥${fmtMoneyShort(st.inc)}</i>`);
+      counts = bits.length ? `<span class="dcal-counts">${bits.join("")}</span>` : "";
+      tip = `${date}${hasExp ? ` · 支出 ¥${fmtMoneyShort(st.exp)}` : ""}${hasInc ? ` · 收入 ¥${fmtMoneyShort(st.inc)}` : ""}`;
+    }
+    cells.push(`<button class="${cls.join(" ")}" data-date="${date}" title="${tip}">
       <span class="dcal-num">${day}</span>
-      ${(st.todo || st.done) ? `<span class="dcal-counts">${st.todo ? `待 ${st.todo}` : ""}${st.todo && st.done ? " · " : ""}${st.done ? `办 ${st.done}` : ""}</span>` : ""}
+      ${counts}
     </button>`);
   }
   grid.innerHTML = cells.join("");
@@ -1586,9 +1643,19 @@ async function renderDailyCalendar(list) {
     renderPage(currentPage);
   }));
 }
-function dflash(msg) { const el = $("#dSaved"); if (el) { el.textContent = msg; setTimeout(() => { el.textContent = ""; }, 2500); } }
+function dflash(msg, isErr) {
+  const el = $("#dSaved");
+  if (el) {
+    el.textContent = msg;
+    el.style.color = isErr ? "var(--red)" : "";
+    el.style.fontWeight = isErr ? "700" : "";
+    clearTimeout(dflash._t);
+    dflash._t = setTimeout(() => { el.textContent = ""; el.style.color = ""; el.style.fontWeight = ""; }, 4000);
+  }
+}
 /* --- 待办页 --- */
 async function renderTodoPage(c) {
+  swapCalContext("todo");
   if (!meetingList.length) { try { meetingList = await api("/api/meetings"); } catch {} }
   c.innerHTML = `<div class="page active">${dateNavHTML()}
     <div class="card daily-work-card">
@@ -1639,8 +1706,9 @@ async function renderTodoPage(c) {
     if (!v) return;
     const time = $("#dWorkTime").value.trim();
     dailyState.works.push({ time, text: v });
-    $("#dWorkInput").value = ""; $("#dWorkTime").value = "";
-    await saveDaily(); renderWorkList();
+    const ok = await saveDaily();
+    if (ok) { $("#dWorkInput").value = ""; $("#dWorkTime").value = ""; renderWorkList(); }
+    else { dailyState.works.pop(); renderWorkList(); }
   }
   function renderWorkList() {
     const box = $("#dWorkList");
@@ -1677,26 +1745,42 @@ async function renderTodoPage(c) {
       const td = await api("/api/daily?date=" + target);
       const tlist = td.todos || [];
       tlist.push({ done: false, text: v });
-      await fetch(API + "/api/daily", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: target, todos: tlist, works: td.works || [], entries: td.entries || [], done: td.done || [] }) });
-      $("#dTodoInput").value = "";
-      dflash("⏰ 已排到 " + target + "（" + weekdayCN(target) + "）的待办");
+      try {
+        const r = await fetch(API + "/api/daily", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: target, todos: tlist, works: td.works || [], entries: td.entries || [], done: td.done || [] }) });
+        const j = await r.json();
+        if (!j.ok) throw new Error(j.error || "保存失败");
+        $("#dTodoInput").value = "";
+        dflash("⏰ 已排到 " + target + "（" + weekdayCN(target) + "）的待办");
+      } catch (e) {
+        dflash("⚠️ 排期保存失败：" + e.message, true);
+      }
       return;
     }
     dailyState.todos.push({ done: false, text: v });
-    $("#dTodoInput").value = "";
-    await saveDaily(); renderTodoList();
+    const ok = await saveDaily();
+    if (ok) { $("#dTodoInput").value = ""; renderTodoList(); }
+    else { dailyState.todos.pop(); renderTodoList(); }
   }
   async function addDone() {
     const v = $("#dDoneInput").value.trim();
     if (!v) return;
     dailyState.done.push({ date: dailyDate, text: v, meeting: $("#dDoneMeeting").value || undefined });
-    $("#dDoneInput").value = ""; $("#dDoneMeeting").value = "";
-    await saveDaily(); renderDoneList();
+    const ok = await saveDaily();
+    if (ok) { $("#dDoneInput").value = ""; $("#dDoneMeeting").value = ""; renderDoneList(); }
+    else { dailyState.done.pop(); renderDoneList(); }
   }
   async function saveDaily() {
-    const r = await fetch(API + "/api/daily", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: dailyDate, todos: dailyState.todos, works: dailyState.works, entries: dailyState.entries, done: dailyState.done }) });
-    const j = await r.json();
-    dflash(j.ok ? "已保存 · " + dailyDate : "保存失败：" + j.error);
+    try {
+      const r = await fetch(API + "/api/daily", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: dailyDate, todos: dailyState.todos, works: dailyState.works, entries: dailyState.entries, done: dailyState.done }) });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.error || "保存失败");
+      dflash("已保存 · " + dailyDate);
+      return true;
+    } catch (e) {
+      dflash("⚠️ 保存失败：" + e.message, true);
+      console.error("saveDaily error:", e);
+      return false;
+    }
   }
   /* 通用输入弹层：替代 window.prompt（Electron 渲染进程不支持 prompt，调用即抛错）
    * fields: [{ id, label, value, type: "text"|"select"|"searchselect", placeholder, options, initial, search }]
@@ -1979,11 +2063,12 @@ async function renderTodoPage(c) {
 }
 /* --- 记账页 --- */
 async function renderLedgerPage(c) {
+  swapCalContext("ledger");
   c.innerHTML = `<div class="page active">${dateNavHTML()}
     <div class="card">
       <h3>💰 记账手册</h3>
       <p style="font-size:12px;color:var(--text2);margin-bottom:12px;">按日一页 · 一二级分类联动 · 时间留空=当前时刻 · 数据存 <span class="mono">日常/YYYY-MM-DD.md</span>（Obsidian 同步可见）</p>
-      <div style="display:grid;grid-template-columns:58px 52px 1fr 1fr 78px 1fr auto;gap:6px;margin:10px 0 12px;align-items:center;">
+      <div style="display:grid;grid-template-columns:58px 52px 1fr 1fr 92px 1fr auto;gap:6px;margin:10px 0 12px;align-items:center;">
         <input class="brain-input" id="dETime" placeholder="时间(留空=当前)" style="min-height:0;padding:8px 8px;font-size:12px;">
         <select id="dEType" style="background:var(--bg2);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:8px;font-size:12px;"><option>支出</option><option>收入</option></select>
         <select id="dECat1" style="background:var(--bg2);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:8px;font-size:12px;"><option value="">一级分类…</option></select>
@@ -1994,11 +2079,40 @@ async function renderLedgerPage(c) {
       </div>
       <table style="width:100%;font-size:12.5px;border-collapse:collapse;" id="dEntryTable">
         <thead><tr style="color:var(--text3);text-align:left;border-bottom:1px solid var(--line);">
-          <th style="padding:6px 4px;">时间</th><th>类型</th><th>一级分类</th><th>二级分类</th><th style="text-align:right;">金额</th><th>说明</th><th></th>
+          <th style="padding:6px 4px;">时间</th><th>类型</th><th>一级分类</th><th>二级分类</th><th style="text-align:right;padding-right:16px;white-space:nowrap;">金额</th><th style="padding-left:2px;">说明</th><th></th>
         </tr></thead>
         <tbody id="dEntryBody"></tbody>
       </table>
       <div id="dSum" style="margin-top:10px;font-size:13px;color:var(--text2);"></div>
+    </div>
+    <div class="card" style="margin-top:14px;">
+      <div id="lFHead" style="display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;user-select:none;">
+        <input id="lFNatural" class="brain-input" placeholder="🔍 一句话查账：如「本月餐饮花了多少」「8月1日到10日餐饮」· 回车查询 / 点下方箭头展开筛选" style="width:100%;min-height:0;padding:8px 10px;font-size:12.5px;">
+        <span id="lFArrow" class="lF-arrow" title="展开 / 收起筛选面板">▾</span>
+      </div>
+      <div id="lFArea" style="display:none;margin-top:10px;">
+        <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:center;">
+          <button class="btn" id="lFGo" style="padding:7px 14px;font-size:12.5px;white-space:nowrap;">🔍 查询</button>
+          <select id="lFRange" style="background:var(--bg2);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:7px 8px;font-size:12px;"><option value="today">今天</option><option value="month">本月</option><option value="lastMonth">上月</option><option value="custom">自定义…</option></select>
+          <input type="date" id="lFFrom" value="" style="background:var(--bg2);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:6px 8px;font-size:12px;display:none;">
+          <span id="lFToSep" style="color:var(--text3);font-size:12px;display:none;">~</span>
+          <input type="date" id="lFTo" value="" style="background:var(--bg2);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:6px 8px;font-size:12px;display:none;">
+          <select id="lFType" style="background:var(--bg2);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:7px 8px;font-size:12px;"><option value="">全部类型</option><option>支出</option><option>收入</option></select>
+          <select id="lFCat1" style="background:var(--bg2);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:7px 8px;font-size:12px;"><option value="">全部一级分类</option></select>
+          <select id="lFCat2" style="background:var(--bg2);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:7px 8px;font-size:12px;"><option value="">全部二级分类</option></select>
+          <input id="lFKw" class="brain-input" placeholder="关键词（说明/分类）" style="min-height:0;padding:7px 10px;font-size:12px;width:130px;">
+          <button class="btn ghost" id="lFReset" style="padding:7px 10px;font-size:12px;white-space:nowrap;">↺ 重置</button>
+        </div>
+        <div id="lFSum" style="display:flex;gap:18px;flex-wrap:wrap;padding:9px 12px;background:var(--bg3);border-radius:8px;font-size:13px;margin-bottom:8px;"></div>
+        <div style="max-height:320px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;">
+          <table style="width:100%;font-size:12px;border-collapse:collapse;" id="lFTable">
+            <thead style="position:sticky;top:0;background:var(--bg3);"><tr style="color:var(--text3);text-align:left;">
+              <th style="padding:6px 6px;">日期</th><th>时间</th><th>类型</th><th>一级分类</th><th>二级分类</th><th style="text-align:right;padding-right:14px;white-space:nowrap;">金额</th><th>说明</th>
+            </tr></thead>
+            <tbody id="lFBody"></tbody>
+          </table>
+        </div>
+      </div>
     </div>
   </div>`;
   await loadDailyBase();
@@ -2033,27 +2147,222 @@ async function renderLedgerPage(c) {
         <td style="color:${e.type === "收入" ? "var(--green)" : "var(--red)"};">${e.type === "收入" ? "↑ 收入" : "↓ 支出"}</td>
         <td>${esc(e.cat || "—")}</td>
         <td style="color:var(--text2);">${esc(e.subcat || "—")}</td>
-        <td style="text-align:right;font-family:var(--mono);${e.type === "收入" ? "color:var(--green);" : "color:var(--red);"}">${e.type === "收入" ? "+" : "-"}¥${Number(e.amount).toFixed(2)}</td>
-        <td style="color:var(--text2);">${esc(e.note || "")}</td>
+        <td style="text-align:right;font-family:var(--mono);white-space:nowrap;padding:6px 16px 6px 4px;${e.type === "收入" ? "color:var(--green);" : "color:var(--red);"}">${e.type === "收入" ? "+" : "-"}¥${Number(e.amount).toFixed(2)}</td>
+        <td style="color:var(--text2);padding:6px 4px;word-break:break-word;min-width:0;">${esc(e.note || "—")}</td>
         <td><button class="btn ghost d-edel" data-i="${i}" style="padding:2px 7px;font-size:11px;color:var(--red);">✕</button></td>
       </tr>`).join("") : `<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:14px 0;">今天还没有账目，记一笔吧 💸</td></tr>`;
-    body.querySelectorAll(".d-edel").forEach((b) => b.addEventListener("click", () => { dailyState.entries.splice(Number(b.dataset.i), 1); saveDaily(); renderEntryList(); }));
+    body.querySelectorAll(".d-edel").forEach((b) => b.addEventListener("click", async () => {
+      const i = Number(b.dataset.i);
+      const removed = dailyState.entries.splice(i, 1)[0];
+      renderEntryList();
+      const ok = await saveDaily();
+      if (!ok) { dailyState.entries.splice(Math.min(i, dailyState.entries.length), 0, removed); renderEntryList(); }
+      else if (fState && fState.from <= dailyDate && dailyDate <= fState.to) fApply();
+    }));
     const exp = dailyState.entries.filter((e) => e.type === "支出").reduce((s, e) => s + (Number(e.amount) || 0), 0);
     const inc = dailyState.entries.filter((e) => e.type === "收入").reduce((s, e) => s + (Number(e.amount) || 0), 0);
     $("#dSum").innerHTML = `今日合计：<span style="color:var(--red);font-family:var(--mono);">支出 ¥${exp.toFixed(2)}</span> · <span style="color:var(--green);font-family:var(--mono);">收入 ¥${inc.toFixed(2)}</span> · <b>结余 ¥${(inc - exp).toFixed(2)}</b>`;
   }
   async function addEntry() {
     const amount = Number($("#dEAmount").value);
-    if (!(amount > 0)) { alert("请输入金额"); return; }
-    dailyState.entries.push({ time: $("#dETime").value || new Date().toTimeString().slice(0, 5), type: $("#dEType").value, cat: $("#dECat1").value, subcat: $("#dECat2").value || undefined, amount, note: $("#dENote").value.trim() });
-    $("#dETime").value = ""; $("#dEAmount").value = ""; $("#dENote").value = "";
-    await saveDaily(); renderEntryList();
+    if (!(amount > 0)) { dflash("⚠️ 请输入有效金额", true); return; }
+    const entry = { time: $("#dETime").value || new Date().toTimeString().slice(0, 5), type: $("#dEType").value, cat: $("#dECat1").value, subcat: $("#dECat2").value || undefined, amount, note: $("#dENote").value.trim() };
+    dailyState.entries.push(entry);
+    renderEntryList();
+    const ok = await saveDaily();
+    if (ok) {
+      $("#dETime").value = ""; $("#dEAmount").value = ""; $("#dENote").value = "";
+      if (fState && fState.from <= dailyDate && dailyDate <= fState.to) fApply();
+    } else {
+      /* 保存失败：回滚这条账目，保留输入框内容供重试，避免内存残留被页面刷新吞掉 */
+      dailyState.entries.pop();
+      renderEntryList();
+    }
   }
   async function saveDaily() {
-    const r = await fetch(API + "/api/daily", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: dailyDate, todos: dailyState.todos, works: dailyState.works, entries: dailyState.entries, done: dailyState.done }) });
-    const j = await r.json();
-    dflash(j.ok ? "已保存 · " + dailyDate : "保存失败：" + j.error);
+    try {
+      const r = await fetch(API + "/api/daily", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: dailyDate, todos: dailyState.todos, works: dailyState.works, entries: dailyState.entries, done: dailyState.done }) });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.error || "保存失败");
+      dflash("已保存 · " + dailyDate);
+      return true;
+    } catch (e) {
+      dflash("⚠️ 保存失败：" + e.message, true);
+      console.error("saveDaily error:", e);
+      return false;
+    }
   }
+  /* ================= 筛选汇总区（跨日查询 · 消费统计） ================= */
+  let fState = { from: dailyDate, to: dailyDate, type: "", cat1: "", cat2: "", kw: "" };
+  function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+  function fHideCustom() { $("#lFFrom").style.display = "none"; $("#lFToSep").style.display = "none"; $("#lFTo").style.display = "none"; }
+  function fShowCustom() { $("#lFFrom").style.display = ""; $("#lFToSep").style.display = ""; $("#lFTo").style.display = ""; }
+  function fOpen(open) {
+    const area = $("#lFArea"), arrow = $("#lFArrow");
+    if (area && arrow) {
+      area.style.display = open ? "" : "none";
+      arrow.classList.toggle("open", open);
+    }
+  }
+  function fSyncCats() {
+    const allCats = new Map();
+    const types = fState.type ? [fState.type === "收入" ? "income" : "expense"] : ["expense", "income"];
+    for (const tp of types) for (const g of catData[tp] || []) {
+      if (!allCats.has(g.cat)) allCats.set(g.cat, new Set());
+      (g.subs || []).forEach((sd) => allCats.get(g.cat).add(sd));
+    }
+    $("#lFCat1").innerHTML = `<option value="">全部一级分类</option>` + [...allCats.keys()].map((c) => `<option>${esc(c)}</option>`).join("");
+    if (fState.cat1 && allCats.has(fState.cat1)) {
+      $("#lFCat2").innerHTML = `<option value="">全部二级分类</option>` + [...allCats.get(fState.cat1)].map((sd) => `<option>${esc(sd)}</option>`).join("");
+      $("#lFCat2").value = fState.cat2 || "";
+    } else {
+      fState.cat2 = ""; $("#lFCat2").innerHTML = `<option value="">全部二级分类</option>`;
+    }
+  }
+  async function fApply() {
+    const from = fState.from || dailyDate, to = fState.to || dailyDate;
+    let list;
+    if (from === to && from === dailyDate) {
+      list = (dailyState.entries || []).map((e) => ({ ...e, date: dailyDate }));
+    } else {
+      try { const j = await api(`/api/ledger?from=${from}&to=${to}`); list = j.entries || []; } catch { list = []; }
+    }
+    const filtered = list.filter((e) => {
+      if (fState.type && e.type !== fState.type) return false;
+      if (fState.cat1 && e.cat !== fState.cat1) return false;
+      if (fState.cat2 && e.subcat !== fState.cat2) return false;
+      if (fState.kw) {
+        const kw = fState.kw.toLowerCase();
+        const hay = `${e.note || ""} ${e.cat || ""} ${e.subcat || ""}`.toLowerCase();
+        if (!hay.includes(kw)) return false;
+      }
+      return true;
+    });
+    const n = filtered.length;
+    const exp = filtered.filter((e) => e.type === "支出").reduce((s, e) => s + (Number(e.amount) || 0), 0);
+    const inc = filtered.filter((e) => e.type === "收入").reduce((s, e) => s + (Number(e.amount) || 0), 0);
+    const days = Math.max(1, Math.round((new Date(to + "T00:00:00") - new Date(from + "T00:00:00")) / 86400000) + 1);
+    $("#lFSum").innerHTML = `<span>📆 ${from} ~ ${to}（${days} 天）</span><span>共 <b>${n}</b> 笔</span>
+      <span style="color:var(--red);font-family:var(--mono);">支出 ¥${exp.toFixed(2)}</span>
+      <span style="color:var(--green);font-family:var(--mono);">收入 ¥${inc.toFixed(2)}</span>
+      <span>结余 <b style="font-family:var(--mono);${inc - exp >= 0 ? "color:var(--green);" : "color:var(--red);"}">¥${(inc - exp).toFixed(2)}</b></span>
+      <span style="color:var(--text3);">日均支出 ¥${(exp / days).toFixed(2)}</span>`;
+    const body = $("#lFBody");
+    body.innerHTML = filtered.length ? filtered.map((e) => `
+      <tr style="border-bottom:1px solid var(--line);">
+        <td style="padding:5px 6px;color:var(--text3);white-space:nowrap;">${esc(e.date)}</td>
+        <td style="color:var(--text3);">${esc(e.time || "—")}</td>
+        <td style="color:${e.type === "收入" ? "var(--green)" : "var(--red)"};">${e.type === "收入" ? "↑ 收入" : "↓ 支出"}</td>
+        <td>${esc(e.cat || "—")}</td>
+        <td style="color:var(--text2);">${esc(e.subcat || "—")}</td>
+        <td style="text-align:right;font-family:var(--mono);white-space:nowrap;padding:5px 14px 5px 4px;${e.type === "收入" ? "color:var(--green);" : "color:var(--red);"}">${e.type === "收入" ? "+" : "-"}¥${Number(e.amount).toFixed(2)}</td>
+        <td style="color:var(--text2);word-break:break-word;min-width:0;">${esc(e.note || "—")}</td>
+      </tr>`).join("") : `<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:14px 0;">该范围内没有符合条件的账目 📭</td></tr>`;
+  }
+  /* 自然语言解析：时间范围 + 分类 + 类型 */
+  function fParse(s) {
+    const now = new Date(), y = now.getFullYear();
+    const pad2 = (n) => String(n).padStart(2, "0");
+    const res = { from: null, to: null, type: "", cat1: "", cat2: "", kw: "", range: "custom" };
+    let m;
+    if ((m = s.match(/(\d{1,2})月(\d{1,2})日?(?:到|至|~|～|-|—)(\d{1,2})月(\d{1,2})日/))) {
+      res.from = fmtDate(new Date(y, +m[1] - 1, +m[2]));
+      res.to = fmtDate(new Date(y, +m[3] - 1, +m[4]));
+      if (res.to < res.from) res.to = fmtDate(new Date(y + 1, +m[3] - 1, +m[4]));
+    } else if ((m = s.match(/(\d{1,2})月(\d{1,2})日?(?:到|至|~|～|-|—)(\d{1,2})日/))) {
+      res.from = fmtDate(new Date(y, +m[1] - 1, +m[2]));
+      res.to = fmtDate(new Date(y, +m[1] - 1, +m[3]));
+    } else if ((m = s.match(/(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:到|至|~|～|-|—)(\d{4})?[-/.]?(\d{1,2})[-/.](\d{1,2})/))) {
+      res.from = fmtDate(new Date(+m[1], +m[2] - 1, +m[3]));
+      res.to = fmtDate(new Date(m[4] ? +m[4] : y, +m[5] - 1, +m[6]));
+    } else if (s.includes("最近") && (m = s.match(/最近(\d+)天/))) {
+      res.to = fmtDate(now); res.from = fmtDate(addDays(now, -(+m[1]) + 1));
+    } else if (s.includes("上周")) {
+      const d = new Date(now); d.setDate(d.getDate() - now.getDay() - 6);
+      res.from = fmtDate(d); res.to = fmtDate(new Date(d.getFullYear(), d.getMonth(), d.getDate() + 6));
+    } else if (s.includes("上月")) {
+      const d = new Date(y, now.getMonth() - 1, 1), last = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+      res.from = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-01`; res.to = `${last.getFullYear()}-${pad2(last.getMonth() + 1)}-${pad2(last.getDate())}`; res.range = "lastMonth";
+    } else if (s.includes("本月") || s.includes("这个月")) {
+      res.from = `${y}-${pad2(now.getMonth() + 1)}-01`; res.to = fmtDate(now); res.range = "month";
+    } else if (s.includes("今天")) {
+      res.from = res.to = fmtDate(now); res.range = "today";
+    } else {
+      res.from = `${y}-${pad2(now.getMonth() + 1)}-01`; res.to = fmtDate(now); res.range = "month";
+    }
+    const names = [];
+    for (const tp of ["expense", "income"]) for (const g of catData[tp] || []) {
+      names.push([g.cat, g.cat, tp]); (g.subs || []).forEach((sd) => names.push([sd, g.cat, tp]));
+    }
+    names.sort((a, b) => b[0].length - a[0].length);
+    for (const [name, cat1, tp] of names) {
+      if (s.includes(name)) {
+        if (name === cat1) res.cat1 = cat1; else { res.cat2 = name; res.cat1 = cat1; }
+        if (!res.type) res.type = tp === "income" ? "收入" : "支出";
+        break;
+      }
+    }
+    if (s.includes("收入") && s.includes("支出")) res.type = "";
+    else if (s.includes("收入") || s.includes("进账")) res.type = "收入";
+    else if (s.includes("支出") || s.includes("花") || s.includes("消费") || s.includes("费用")) res.type = "支出";
+    return res;
+  }
+  async function fNatural() {
+    const s = ($("#lFNatural").value || "").trim();
+    if (!s) { dflash("请输入查询内容，如「本月餐饮花了多少」", true); return; }
+    const p = fParse(s);
+    fState = { from: p.from, to: p.to, type: p.type, cat1: p.cat1, cat2: p.cat2, kw: p.kw };
+    $("#lFRange").value = p.range;
+    if (p.range === "custom") { fShowCustom(); $("#lFFrom").value = p.from; $("#lFTo").value = p.to; } else fHideCustom();
+    $("#lFType").value = p.type;
+    fSyncCats();
+    $("#lFCat1").value = p.cat1;
+    if (p.cat2) $("#lFCat2").value = p.cat2;
+    $("#lFKw").value = p.kw;
+    fOpen(true); /* 查询后自动展开结果面板 */
+    await fApply();
+    dflash(`🔎 已查询 ${p.from} ~ ${p.to}${p.cat1 ? " · " + p.cat1 : ""}${p.cat2 ? "/" + p.cat2 : ""}${p.type ? " · " + p.type : ""}`);
+  }
+  function fInit() {
+    fSyncCats();
+    $("#lFHead").addEventListener("click", (e) => {
+      if (e.target.id === "lFNatural") return; /* 点击输入框只聚焦，不切换 */
+      const open = $("#lFArea").style.display !== "none";
+      fOpen(!open);
+      if (!open) fApply(); /* 展开时刷新一次，避免收起期间数据过期 */
+    });
+    $("#lFRange").addEventListener("change", () => {
+      const r = $("#lFRange").value, now = new Date();
+      const pad2 = (n) => String(n).padStart(2, "0");
+      if (r === "today") { fState.from = fState.to = dailyDate; fHideCustom(); }
+      else if (r === "month") { fState.from = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-01`; fState.to = dailyDate; fHideCustom(); }
+      else if (r === "lastMonth") {
+        const d = new Date(now.getFullYear(), now.getMonth() - 1, 1), last = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+        fState.from = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-01`; fState.to = `${last.getFullYear()}-${pad2(last.getMonth() + 1)}-${pad2(last.getDate())}`; fHideCustom();
+      } else {
+        fShowCustom();
+        if (!$("#lFFrom").value) $("#lFFrom").value = fState.from;
+        if (!$("#lFTo").value) $("#lFTo").value = fState.to;
+        fState.from = $("#lFFrom").value || fState.from; fState.to = $("#lFTo").value || fState.to;
+      }
+      fApply();
+    });
+    $("#lFFrom").addEventListener("change", () => { fState.from = $("#lFFrom").value; fApply(); });
+    $("#lFTo").addEventListener("change", () => { fState.to = $("#lFTo").value; fApply(); });
+    $("#lFType").addEventListener("change", () => { fState.type = $("#lFType").value; fSyncCats(); fApply(); });
+    $("#lFCat1").addEventListener("change", () => { fState.cat1 = $("#lFCat1").value; fState.cat2 = ""; fSyncCats(); fApply(); });
+    $("#lFCat2").addEventListener("change", () => { fState.cat2 = $("#lFCat2").value; fApply(); });
+    $("#lFKw").addEventListener("input", debounce(() => { fState.kw = $("#lFKw").value.trim(); fApply(); }, 300));
+    $("#lFReset").addEventListener("click", () => {
+      fState = { from: dailyDate, to: dailyDate, type: "", cat1: "", cat2: "", kw: "" };
+      $("#lFRange").value = "today"; fHideCustom(); $("#lFType").value = ""; $("#lFKw").value = ""; $("#lFNatural").value = "";
+      fSyncCats(); fApply();
+    });
+    $("#lFGo").addEventListener("click", fNatural);
+    $("#lFNatural").addEventListener("keydown", (e) => { if (e.key === "Enter") fNatural(); });
+    fApply();
+  }
+  fInit();
 }
 function shiftDay(dateStr, n) {
   const d = new Date(dateStr + "T00:00:00");
