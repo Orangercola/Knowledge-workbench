@@ -138,6 +138,21 @@ function walkRawFiles(out) {
       }
     })(sub);
   }
+  /* AI 回答（输出/查询/answers/）也纳入素材库，作为独立类型（type: "AI回答"） */
+  const ansRoot = path.join(KB_ROOT, "输出", "查询", "answers");
+  if (fs.existsSync(ansRoot)) {
+    try {
+      const ans = fs.readdirSync(ansRoot, { withFileTypes: true });
+      for (const x of ans) {
+        if (x.isDirectory() || !x.name.endsWith(".md")) continue;
+        const full = path.join(ansRoot, x.name);
+        const rel = path.relative(KB_ROOT, full).split(path.sep).join("/");
+        let mtime = 0;
+        try { mtime = fs.statSync(full).mtimeMs; } catch {}
+        out.push({ rel, type: "AI回答", mtime });
+      }
+    } catch {}
+  }
   out.sort((a, b) => b.mtime - a.mtime);
 }
 
@@ -206,7 +221,7 @@ function apiStats() {
   groups.push({ k: "其他", count: Math.max(0, total - groups.reduce((a, b) => a + b.count, 0)) });
   /* 待审卡片列表：摄入产物目录（素材摘要/概念/实体/对比/综述）中 frontmatter 含 review: pending 的页面 */
   const pendingReviewList = [];
-  for (const d of ["素材摘要", "概念", "实体", "对比", "综述"]) {
+  for (const d of ["素材摘要", "AI回答提炼", "概念", "实体", "对比", "综述"]) {
     const dir = path.join(wiki, d);
     let files;
     try { files = fs.readdirSync(dir); } catch { continue; }
@@ -249,6 +264,15 @@ function apiFiles(type) {
     walkRawFiles(out);
   } else {
     walkMds(path.join(KB_ROOT, "原始素材", "文章"), KB_ROOT, out, skipDirs);
+  }
+  /* 附加文件修改时间（mtime），供前端按时间排序；读取失败时保持字符串路径 */
+  if (out.length && typeof out[0] === "string") {
+    return out.map((rel) => {
+      const p = safeJoin(KB_ROOT, rel);
+      let mtime = 0;
+      try { mtime = fs.statSync(p).mtimeMs; } catch {}
+      return { rel, mtime };
+    });
   }
   return out;
 }
@@ -484,6 +508,82 @@ function apiAnswers() {
     });
   }
   return out;
+}
+
+function apiAnswersIngest(req, cb) {
+  /* POST /api/answers/ingest：把一条 AI 回答提炼成知识层素材摘要页（review: pending，走待审闭环）
+     入参 {rel: "输出/查询/answers/xxx-回答.md"} */
+  let body = "";
+  req.on("data", (c) => (body += c));
+  req.on("end", () => {
+    try {
+      const { rel } = JSON.parse(body || "{}");
+      if (!rel) return cb({ ok: false, error: "rel 必填" });
+      const p = safeJoin(KB_ROOT, rel);
+      if (!p || !fs.existsSync(p) || !p.includes(path.join("输出", "查询", "answers"))) {
+        return cb({ ok: false, error: "仅支持 输出/查询/answers/ 下的回答文件" });
+      }
+      let text = fs.readFileSync(p, "utf-8");
+      const { fm, body: ansBody } = parseFrontmatter(text);
+      const question = (fm.question || "").trim() || "AI 问答";
+      const date = (fm.answeredAt || "").slice(0, 10) || new Date().toISOString().slice(0, 10);
+      const title = question.replace(/[\\/:*?"<>|\n\r]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 30) || "AI问答";
+      const safeTitle = question.replace(/[\\/:*?"<>|\n\r]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 40) || "AI问答";
+      const fname = `${date}-${safeTitle}-AI回答.md`;
+      const outDir = path.join(KB_ROOT, "知识层", "AI回答提炼");
+      fs.mkdirSync(outDir, { recursive: true });
+      const outFile = path.join(outDir, fname);
+      if (fs.existsSync(outFile)) return cb({ ok: false, error: "素材摘要已存在：" + fname });
+      /* 正文：问题 + 回答要点 + 依据引用（保留原文引用段） */
+      let quote = "";
+      const inboxName = (p.match(/(\d{8}-\d{6})/) || [])[1];
+      if (inboxName) {
+        const ip = path.join(KB_ROOT, "输出", "查询", "inbox", inboxName + ".md");
+        if (fs.existsSync(ip)) {
+          const inboxText = fs.readFileSync(ip, "utf-8");
+          const m = inboxText.match(/【原文引用】([\s\S]*?)(?:\n\n【全文上下文】|$)/);
+          if (m && m[1].trim()) quote = `\n\n> **原文引用：** ${m[1].trim().slice(0, 500)}`;
+        }
+      }
+      const md = `---
+type: aians
+title: "${title}"
+review: pending
+tags:
+  - aians
+  - 领域/数据要素
+  - AI回答
+aliases:
+  - AI问答 ${date}
+source: "${rel}"
+confidence: medium
+deprecated: false
+created: ${new Date().toISOString().slice(0, 10)}
+updated: ${new Date().toISOString().slice(0, 10)}
+---
+
+# ${title}
+
+> **来源：** ${rel}（工作台 AI 对话回答，${fm.answeredAt || date}）
+
+## 问题
+
+${question}${quote}
+
+## 回答摘要
+
+${(ansBody || "").trim().slice(0, 4000)}
+
+## 待澄清问题
+- AI 回答基于知识库检索生成，引用与数据需人工复核后确认
+`;
+      fs.mkdirSync(path.dirname(outFile), { recursive: true });
+      fs.writeFileSync(outFile, md, "utf-8");
+      cb({ ok: true, file: "知识层/AI回答提炼/" + fname, rel: "知识层/AI回答提炼/" + fname });
+    } catch (e) {
+      cb({ ok: false, error: e.message });
+    }
+  });
 }
 
 function apiAsk(req, cb) {
@@ -985,6 +1085,7 @@ const server = http.createServer((req, res) => {
       if (p === "/api/related") return readJson(res, apiRelated(u.searchParams.get("path") || ""));
       if (p === "/api/inbox") return readJson(res, apiInbox());
       if (p === "/api/answers") return readJson(res, apiAnswers());
+      if (p === "/api/answers/ingest") return apiAnswersIngest(req, (r) => readJson(res, r));
       if (p === "/api/ask") return apiAsk(req, (r) => readJson(res, r));
       if (p === "/api/trigger") return apiTrigger(req, (r) => readJson(res, r));
       if (p === "/api/todo") return readJson(res, apiTodo());

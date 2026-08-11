@@ -4,7 +4,7 @@
 const $ = (s) => document.querySelector(s);
 const API = "";
 const TYPE_COLOR = { concept: "#7c3aed", source: "#0891b2", entity: "#16a34a", comparison: "#d97706", synthesis: "#dc2626", page: "#8b84ab", topic: "#6f4cff" };
-const TYPE_CN = { concept: "概念", source: "素材摘要", entity: "实体", comparison: "对比", synthesis: "综述", page: "页面", topic: "主题", template: "模板" };
+const TYPE_CN = { concept: "概念", source: "素材摘要", aians: "AI回答提炼", entity: "实体", comparison: "对比", synthesis: "综述", page: "页面", topic: "主题", template: "模板" };
 
 const PAGES = {
   dashboard: { t: "总览 Dashboard", c: "知识库全景 · 战场状态" },
@@ -292,6 +292,7 @@ function renderReaderWithAI(el, rel, f, opts = {}) {
           <div class="read-toolbar">
             ${splitHost ? `<button class="btn ghost read-back" style="padding:5px 12px;font-size:12px;">← 返回列表</button>` : ""}
             <span class="read-title" title="${esc(rel)}">${esc(title)}</span>
+            ${/输出\/查询\/answers\//.test(rel) ? `<button class="btn" id="aiAnsIngest" style="padding:5px 12px;font-size:12px;background:#2c2450;">📥 提炼入库</button>` : ""}
             <div class="read-font">
               <button id="fontMinus" title="减小字号">A−</button>
               <span id="fontVal">${readerFontSize}px</span>
@@ -368,6 +369,28 @@ function bindReaderAI(el, rel, body) {
       const splitHost = el.closest ? el.closest(".split") : null;
       if (splitHost) splitHost.classList.remove("reading");
       else if (typeof goBack === "function") goBack();
+    });
+  }
+  /* AI 回答「提炼入库」：一键转成知识层素材摘要（review: pending 走待审闭环） */
+  const aiIng = el.querySelector("#aiAnsIngest");
+  if (aiIng) {
+    aiIng.addEventListener("click", async () => {
+      aiIng.disabled = true; aiIng.textContent = "⏳ 提炼中…";
+      try {
+        const r = await fetch(API + "/api/answers/ingest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rel }) });
+        const j = await r.json();
+        if (j.ok) {
+          aiIng.textContent = "✅ 已入库待审";
+          aiIng.style.background = "var(--green)";
+          setTimeout(() => { if (confirm("已生成素材摘要（待审）。要现在打开看看吗？")) openFile(j.rel); }, 200);
+        } else {
+          aiIng.disabled = false; aiIng.textContent = "📥 提炼入库";
+          alert("入库失败：" + j.error);
+        }
+      } catch (e) {
+        aiIng.disabled = false; aiIng.textContent = "📥 提炼入库";
+        alert("入库失败：" + e.message);
+      }
     });
   }
   const fontMinus = el.querySelector("#fontMinus");
@@ -558,8 +581,9 @@ async function openFile(rel, opts = {}) {
   }
   const f = await api("/api/file?path=" + encodeURIComponent(rel));
   if (!f || f.error) { alert("文件不存在：" + rel); return; }
-  /* 浏览历史：非"返回"触发时，记录当前页面作为上一个页面（供 ← 返回 回溯） */
-  if (!opts.fromBack && currentRel && currentRel !== rel) backStack.push(currentRel);
+  /* 浏览历史：非"返回"触发时，记录当前页面作为上一个页面（供 ← 返回 回溯）。
+     统一存对象 {page, rel}，与书架阅读器（openBookReader）的格式一致 */
+  if (!opts.fromBack && currentRel && currentRel !== rel) backStack.push({ page: currentPage, rel: currentRel });
   currentRel = rel;
   const back = currentPage === "library" || currentPage === "wiki" || currentPage === "hotspots";
   const isPending = f.fm && f.fm.review === "pending";
@@ -656,54 +680,84 @@ async function askWithContext(el, rel, body, question, sel, rs, rec) {
 }
 
 function goBack() {
-  /* 优先回溯浏览历史（来源链接/双链跳转后返回上一个页面），栈空才回列表 */
+  /* 优先回溯浏览历史（来源链接/双链跳转后返回上一个页面），栈空才回列表。
+     backStack 统一存 {page, rel} 对象（与书架阅读器一致），兼容旧字符串条目 */
   if (backStack.length) {
     const prev = backStack.pop();
-    openFile(prev, { fromBack: true });
+    if (prev && typeof prev === "object" && prev.rel) {
+      /* 上一个页面是列表页（素材库/知识层/热点）且记录了来源文档 → 回列表并自动重新打开该文档 */
+      if (prev.page === "library" || prev.page === "wiki" || prev.page === "hotspots") {
+        _autoOpenRel = prev.rel;
+        currentPage = prev.page;
+        renderPage(prev.page);
+      } else if (prev.page === "bookshelf") {
+        currentPage = prev.page;
+        navigate(prev.page);
+      } else {
+        openFile(prev.rel, { fromBack: true });
+      }
+    } else if (typeof prev === "string") {
+      openFile(prev, { fromBack: true });
+    } else {
+      if (currentPage === "library" || currentPage === "wiki" || currentPage === "hotspots") renderPage(currentPage);
+      else navigate(currentPage);
+    }
     return;
   }
   if (currentPage === "library" || currentPage === "wiki" || currentPage === "hotspots") renderPage(currentPage);
   else navigate(currentPage);
 }
 
+let _wikiLinkDelegateBound = false;
+let _autoOpenRel = null; /* goBack 返回列表页时，自动重新打开的来源文档（供 renderWiki/Library/Hotspots 消费） */
 async function bindWikiLinks() {
-  document.querySelectorAll("a.wikilink").forEach((a) => {
-    a.addEventListener("click", async (e) => {
+  /* 事件委托：挂在 document 上捕获各类阅读器链接点击，幂等（只绑一次），
+     避免多次渲染导致同一链接叠加多个监听 → openFile 被触发多次 → backStack 被污染 */
+  if (_wikiLinkDelegateBound) return;
+  _wikiLinkDelegateBound = true;
+  document.addEventListener("click", async (e) => {
+    /* 1. wikilink：双链跳转 */
+    const a = e.target.closest ? e.target.closest("a.wikilink") : null;
+    if (a) {
       e.preventDefault();
       const target = a.dataset.t.replace(/\.md$/, "");
       /* 支持两种格式：完整路径（知识层/概念/xxx）或短名（xxx）——都尝试匹配 */
       const files = await api("/api/files?type=wiki");
-      let hit = files.find((f) => f === target || f.replace(/\.md$/, "") === target);
+      const relOf = (f) => (typeof f === "string" ? f : f.rel);
+      let hit = files.find((f) => relOf(f) === target || relOf(f).replace(/\.md$/, "") === target);
       if (!hit) {
         const name = target.split("/").pop();
-        hit = files.find((f) => f.split("/").pop().replace(".md", "") === name);
+        hit = files.find((f) => relOf(f).split("/").pop().replace(".md", "") === name);
       }
-      if (hit) openFile(hit);
+      if (hit) openFile(relOf(hit));
       else {
         const raws = await api("/api/files?type=raw");
         const tname = target.split("/").pop();
-        let hit2 = raws.find((f) => f === target || f.split("/").pop().replace(/\.(md|png|jpg|jpeg|webp|gif|pptx|ppt)$/i, "") === tname);
-        if (hit2) openFile(hit2);
+        let hit2 = raws.find((f) => relOf(f) === target || relOf(f).split("/").pop().replace(/\.(md|png|jpg|jpeg|webp|gif|pptx|ppt)$/i, "") === tname);
+        if (hit2) openFile(relOf(hit2));
         else alert("未找到页面：" + target);
       }
-    });
-  });
-
-  /* 来源素材链接：.md → 打开转换稿阅读；图片 → lightbox 预览 */
-  document.querySelectorAll("a.src-link, a.src-md").forEach((a) => {
-    a.addEventListener("click", (e) => {
+      return;
+    }
+    /* 2. 来源素材链接：.md → 打开转换稿阅读；图片 → lightbox 预览 */
+    const src = e.target.closest ? e.target.closest("a.src-link, a.src-md") : null;
+    if (src) {
       e.preventDefault();
-      const r = a.dataset.rel;
+      const r = src.dataset.rel;
       if (isImgRel(r)) openLightbox(expandSource(r), 0);
       else openFile(r);
-    });
-  });
-  /* 来源素材缩略图 → lightbox（整组左右切换） */
-  document.querySelectorAll(".src-thumbs").forEach((box) => {
-    const list = JSON.parse(box.dataset.list || "[]");
-    box.querySelectorAll("img.src-thumb").forEach((img, i) => {
-      img.addEventListener("click", () => openLightbox(list, i));
-    });
+      return;
+    }
+    /* 3. 来源素材缩略图 → lightbox（整组左右切换） */
+    const thumb = e.target.closest ? e.target.closest("img.src-thumb") : null;
+    if (thumb) {
+      const box = thumb.closest(".src-thumbs");
+      if (box) {
+        const list = JSON.parse(box.dataset.list || "[]");
+        const idx = Array.prototype.indexOf.call(box.querySelectorAll("img.src-thumb"), thumb);
+        openLightbox(list, idx);
+      }
+    }
   });
 }
 
@@ -1046,8 +1100,8 @@ async function renderLibrary(c) {
     { k: "技术能力", kw: ["数据空间", "可信", "密态", "隐私", "区块链", "沙箱", "连接器", "智能体", "AI", "大模型", "算力"] },
     { k: "业务场景", kw: ["政务平台", "授权运营", "资产入表", "数据资产", "金融", "信用", "医保", "保险", "就业", "汽车服务", "汽车", "教育"] },
   ];
-  /* 素材类型（对应 原始素材/ 一级子目录） */
-  const TYPES = ["全部", "ppt", "文章", "热点", "论文", "逐字稿", "数据", "随手笔记", "图片", "附件"];
+  /* 素材类型（对应 原始素材/ 一级子目录 + AI回答） */
+  const TYPES = ["全部", "ppt", "文章", "热点", "论文", "逐字稿", "数据", "随手笔记", "图片", "附件", "AI回答"];
   c.innerHTML = `<div class="page active"><div class="split">
     <div class="file-tree">
       <div style="display:flex;gap:8px;padding:8px;margin-bottom:6px;">
@@ -1100,10 +1154,12 @@ async function renderLibrary(c) {
     const tree = {}; // type -> { folder: [files] } 或 type -> [files]
     for (const f of items) {
       const rel = f.rel || f;
-      const segs = rel.split("/"); // 原始素材/type/...
+      const segs = rel.split("/"); // 原始素材/type/... 或 输出/查询/answers/...
       if (segs.length < 3) continue;
-      const type = segs[1];
+      let type = segs[1];
       const rest = segs.slice(2);
+      /* AI 回答（输出/查询/answers/）归入独立类型 */
+      if (segs[0] === "输出" && segs[1] === "查询" && segs[2] === "answers") { type = "AI回答"; rest.length = 0; }
       if (!tree[type]) tree[type] = { folders: {}, files: [] };
       if (rest.length > 1) {
         const folder = rest.slice(0, -1).join("/");
@@ -1217,6 +1273,7 @@ async function renderLibrary(c) {
         return;
       }
       const f = await api("/api/file?path=" + encodeURIComponent(rel));
+      currentRel = rel; /* 记录当前打开的文档，供 wikilink 跳转后返回正确回溯 */
       renderReaderWithAI($("#libReader"), rel, f, { pane: true });
     }));
   }
@@ -1236,6 +1293,20 @@ async function renderLibrary(c) {
   });
   $("#libFilter").addEventListener("input", (e) => renderList(e.target.value.trim()));
   renderList("");
+  /* goBack 返回时自动重新打开来源文档（素材库） */
+  if (_autoOpenRel && _autoOpenRel.startsWith("原始素材/")) {
+    const target = _autoOpenRel;
+    _autoOpenRel = null;
+    setTimeout(() => {
+      const item = document.querySelector(`#libList .f[data-rel="${CSS.escape(target)}"]`);
+      if (item) item.click();
+      else if (/\.(md|txt)$/i.test(target)) {
+        api("/api/file?path=" + encodeURIComponent(target)).then((f) => {
+          if (f && !f.error) renderReaderWithAI($("#libReader"), target, f, { pane: true });
+        });
+      }
+    }, 50);
+  }
 }
 
 /* --- 每日热点 --- */
@@ -1263,16 +1334,31 @@ async function renderHotspots(c) {
     listEl.querySelectorAll(".list-item").forEach((x) => x.style.background = "");
     el.style.background = "rgba(239,68,68,0.14)";
     const rel = el.dataset.rel;
+    currentRel = rel; /* 记录当前打开的文档，供 wikilink 跳转后返回正确回溯 */
     const f = await api("/api/file?path=" + encodeURIComponent(rel));
     renderReaderWithAI($("#hsReader"), rel, f, { pane: true });
   }));
+  /* goBack 返回时自动重新打开来源文档（热点日报） */
+  if (_autoOpenRel && _autoOpenRel.startsWith("原始素材/热点/")) {
+    const target = _autoOpenRel;
+    _autoOpenRel = null;
+    setTimeout(() => {
+      const item = document.querySelector(`#hsList .list-item[data-rel="${CSS.escape(target)}"]`);
+      if (item) item.click();
+      else {
+        api("/api/file?path=" + encodeURIComponent(target)).then((f) => {
+          if (f && !f.error) renderReaderWithAI($("#hsReader"), target, f, { pane: true });
+        });
+      }
+    }, 50);
+  }
 }
 
 /* --- 知识层 --- */
 let wikiCache = null;
 async function renderWiki(c) {
   if (!wikiCache) wikiCache = await api("/api/files?type=wiki");
-  const types = ["全部", "concept", "entity", "source", "comparison", "synthesis"];
+  const types = ["全部", "concept", "entity", "source", "aians", "comparison", "synthesis"];
   c.innerHTML = `<div class="page active"><div class="split">
     <div class="file-tree">
       <div style="display:flex;gap:6px;flex-wrap:wrap;padding:8px;margin-bottom:4px;" id="wikiTabs"></div>
@@ -1281,40 +1367,63 @@ async function renderWiki(c) {
     <div class="reader-pane" id="wikiReader"><div class="empty">← 从左侧选择知识层页面<br><br>AI 编译的知识网络</div></div>
   </div></div>`;
   const tabEl = $("#wikiTabs");
-  tabEl.innerHTML = types.map((t) => `<span class="tag ${t === "concept" ? "concept" : ""}" data-type="${t}" style="cursor:pointer;">${t === "全部" ? "全部" : TYPE_CN[t]}</span>`).join("");
+  tabEl.innerHTML = types.map((t) => `<span class="wiki-tab${t === "全部" ? " active" : ""}" data-type="${t}">${t === "全部" ? "全部" : TYPE_CN[t]}</span>`).join("");
   const listEl = $("#wikiList");
   async function renderList(type) {
     const metas = [];
-    for (const rel of wikiCache) {
+    for (const item of wikiCache) {
+      const rel = typeof item === "string" ? item : item.rel;
+      const mtime = typeof item === "object" ? item.mtime : 0;
       if (rel.includes("/README") || rel.startsWith("_") || rel.includes("/_")) continue;
       const base = rel.split("/").pop().replace(".md", "");
       const f = await api("/api/file?path=" + encodeURIComponent(rel));
       if (!f || f.error) continue;
       if (type !== "全部" && f.fm.type !== type) continue;
-      metas.push({ rel, fm: f.fm, title: f.fm.title || base, type: f.fm.type || "page" });
+      metas.push({ rel, fm: f.fm, title: f.fm.title || base, type: f.fm.type || "page", mtime });
     }
-    metas.sort((a, b) => (b.fm.updated || "").localeCompare(a.fm.updated || ""));
-    listEl.innerHTML = metas.map((m) => `
+    /* 排序：优先真实文件修改时间（mtime），缺失时回退 frontmatter updated/date */
+    metas.sort((a, b) => {
+      const ta = a.mtime || (a.fm.updated || a.fm.date || "").replace(/[-:T]/g, "").replace(" ", "");
+      const tb = b.mtime || (b.fm.updated || b.fm.date || "").replace(/[-:T]/g, "").replace(" ", "");
+      return String(tb).localeCompare(String(ta));
+    });
+    listEl.innerHTML = metas.map((m) => {
+      const dt = m.mtime ? new Date(m.mtime).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" }) : (m.fm.updated || m.fm.date || "").slice(5, 10);
+      return `
       <div class="list-item" data-rel="${esc(m.rel)}">
         <span class="tag ${m.type}">${TYPE_CN[m.type] || m.type}</span>
         <span class="t">${esc(m.title)}</span>
-        <span style="margin-left:auto;font-size:11px;color:var(--text3);white-space:nowrap;">${esc(m.fm.confidence || "")}</span>
-      </div>`).join("");
+        <span style="margin-left:auto;font-size:11px;color:var(--text3);white-space:nowrap;">${esc(dt)}</span>
+      </div>`;
+    }).join("");
     listEl.querySelectorAll(".list-item").forEach((el) => el.addEventListener("click", async () => {
       listEl.querySelectorAll(".list-item").forEach((x) => x.style.background = "");
       el.style.background = "rgba(59,130,246,0.12)";
       const rel = el.dataset.rel;
+      currentRel = rel; /* 记录当前打开的文档，供 wikilink 跳转后返回正确回溯 */
       const f = await api("/api/file?path=" + encodeURIComponent(rel));
       renderReaderWithAI($("#wikiReader"), rel, f, { pane: true });
     }));
   }
-  tabEl.querySelectorAll(".tag").forEach((t) => t.addEventListener("click", () => {
-    tabEl.querySelectorAll(".tag").forEach((x) => x.style.opacity = "0.5");
-    t.style.opacity = "1";
+  tabEl.querySelectorAll(".wiki-tab").forEach((t) => t.addEventListener("click", () => {
+    tabEl.querySelectorAll(".wiki-tab").forEach((x) => x.classList.remove("active"));
+    t.classList.add("active");
     renderList(t.dataset.type);
   }));
-  tabEl.querySelectorAll(".tag")[0].style.opacity = "1";
   renderList("全部");
+  /* goBack 返回时自动重新打开来源文档 */
+  if (_autoOpenRel && _autoOpenRel.startsWith("知识层/")) {
+    const target = _autoOpenRel;
+    _autoOpenRel = null;
+    setTimeout(async () => {
+      const item = document.querySelector(`#wikiList .list-item[data-rel="${CSS.escape(target)}"]`);
+      if (item) item.click();
+      else {
+        const f = await api("/api/file?path=" + encodeURIComponent(target));
+        if (f && !f.error) renderReaderWithAI($("#wikiReader"), target, f, { pane: true });
+      }
+    }, 50);
+  }
 }
 
 /* --- 头脑风暴 --- */
@@ -2403,14 +2512,16 @@ function weekdayCN(dateStr) { const w = ["周日", "周一", "周二", "周三",
 /* --- 方案工坊 --- */
 async function renderStudio(c) {
   const files = await api("/api/files?type=wiki");
-  const templates = files.filter((f) => f.includes("/_模板/"));
-  const synths = files.filter((f) => f.includes("/综述/"));
+  const templates = files.filter((f) => f.rel.includes("/_模板/"));
+  const synths = files.filter((f) => f.rel.includes("/综述/"));
   const metas = [];
-  for (const rel of templates) {
+  for (const item of templates) {
+    const rel = item.rel;
     const f = await api("/api/file?path=" + encodeURIComponent(rel));
     if (f && !f.error) metas.push({ rel, title: f.fm.title || rel.split("/").pop(), type: "方案组件", icon: "🧩" });
   }
-  for (const rel of synths) {
+  for (const item of synths) {
+    const rel = item.rel;
     const f = await api("/api/file?path=" + encodeURIComponent(rel));
     if (f && !f.error) metas.push({ rel, title: f.fm.title || rel.split("/").pop(), type: "实战产出", icon: "📜" });
   }
@@ -2759,7 +2870,7 @@ async function openBookReader(id, books) {
   /* --- 事件绑定 --- */
   c.querySelector("#bsReaderBack").addEventListener("click", () => {
     const prev = backStack.pop();
-    if (prev) { currentPage = prev.page; currentRel = prev.rel; }
+    if (prev && typeof prev === "object" && prev.page) { currentPage = prev.page; currentRel = prev.rel; }
     else currentPage = "bookshelf";
     navigate(currentPage);
   });
