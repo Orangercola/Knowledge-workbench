@@ -1,7 +1,7 @@
 # 知识工作台 (Knowledge Workbench)
 
-> 本地零依赖的个人 AI 知识工作台。将 Obsidian 知识库升级为可交互 Web 应用。
-> 紫罗兰夜色主题 · Node.js 零外部依赖 · 浏览器即客户端。
+> 本地优先的个人 AI 知识工作台。将 Obsidian/Markdown 知识库升级为可交互 Web 应用。
+> 青屿作战台设计系统 · Node.js 零外部依赖 · 浏览器即客户端 · 前端常用库本地化。
 
 ---
 
@@ -33,6 +33,7 @@
   - [前端](#前端)
   - [数据层](#数据层)
 - [API 一览](#api-一览)
+- [更新记录](CHANGELOG.md)
 - [目录结构](#目录结构)
 - [数据格式约定](#数据格式约定)
 - [许可证](#许可证)
@@ -114,7 +115,7 @@ node 工作台/server.js
 ---
 title: "数据空间"
 type: concept
-tags: ["数据要素", "基础设施"]
+tags: ["项目管理", "知识库"]
 ---
 ```
 每个 `.md` 文件开头 `---` 之间的内容。用于分类、标签、来源标注。
@@ -136,6 +137,8 @@ tags: ["数据要素", "基础设施"]
 | 模块 | 说明 | 核心技术 |
 |------|------|----------|
 | 总览 Dashboard | 知识库全景统计 + 素材分类迷你图 + 待审卡片 + 近期操作 | 实时文件扫描 + 内存缓存 |
+| 摄入质检 | 待审卡片验收 + **打回重写**（AI 按意见基于源素材真实重写，覆盖写回再进待审）| frontmatter review 状态机 + 自动化信箱桥 |
+| 长期待办 | 跨日滚动待办池 + 勾选/删除**二次确认** + 完结**安全归档**到当天已办结表 | 独立 Markdown 文件 + 安全插行写入 |
 | 知识星图 | 概念 / 实体 / 素材关系网络 | D3.js 力导向图 + 双向链接解析 |
 | 素材库 | 原始素材文件浏览 + 全文搜索 + **AI回答** 类型 | 目录树 + MiniSearch 全文索引 |
 | 每日热点 | AI 资讯自动补给线 | Markdown 文件列表 + 日期解析 |
@@ -301,7 +304,7 @@ tags: ["数据要素", "基础设施"]
 
 **实现方式：**
 - **提问端**：用户在 AI 对话页面输入问题，前端调用 `POST /api/ask`，后端将问题写入 `输出/查询/inbox/YYYYMMDD-HHMMSS.md`，附带 YAML Frontmatter（id, status: pending, askedAt, question）。
-- **触发端**：用户可以点击「立即唤醒 Agent」按钮，前端调用 `POST /api/trigger`。后端直接操作 WorkBuddy 的 SQLite 数据库（`~/.workbuddy/workbuddy.db`），将对应自动化（`AI_SERVICE_AUTOMATION_ID`）的 `next_run_at` 修改为当前时间戳，调度器下一轮即执行。
+- **触发端（可选）**：用户可以点击「立即唤醒 Agent」按钮，前端调用 `POST /api/trigger`。如配置了环境变量 `WB_AI_SERVICE_AUTOMATION_ID`，后端会操作 WorkBuddy 的 SQLite 数据库（`~/.workbuddy/workbuddy.db`），将对应自动化的 `next_run_at` 修改为当前时间戳，调度器下一轮即执行；未配置时仅写入 inbox，等待外部流程取件。
 - **回答端**：WorkBuddy 自动化脚本读取 inbox 中 `status: pending` 的文件，调用 AI 进行回答，结果写入 `输出/查询/answers/YYYYMMDD-HHMMSS.md`，并将 inbox 中对应文件标记为 `status: done`。
 - **展示端**：前端同时展示 inbox（待回答）和 answers（已回答）两个列表，支持追问和基于上下文的继续提问。
 
@@ -429,7 +432,7 @@ tags: ["数据要素", "基础设施"]
 - **全文搜索**：[MiniSearch](https://github.com/lucaong/minisearch)（CDN）
 - **知识星图**：[D3.js v7](https://d3js.org/)（CDN，懒加载）
 - **PDF 阅读**：[PDF.js](https://mozilla.github.io/pdf.js/)（本地静态文件，离线可用）
-- **样式**：纯 CSS，紫罗兰夜色主题（CSS 变量系统），玻璃态卡片，响应式侧边栏
+- **样式**：纯 CSS，青屿作战台设计系统（CSS 变量系统），卡片化界面，响应式侧边栏
 - **动效**：独立 `fx.js` 文件，数字滚动、环形进度动画、条形图展开、入场 stagger；通过 `MutationObserver` 自动适配动态内容；尊重 `prefers-reduced-motion`
 
 ### 数据层
@@ -483,7 +486,7 @@ tags: ["数据要素", "基础设施"]
 | `GET /api/inbox` | GET | 待回答提问列表 |
 | `GET /api/answers` | GET | 已回答问题列表 |
 | `POST /api/ask` | POST | 提交新问题到 inbox |
-| `POST /api/trigger` | POST | 唤醒 WorkBuddy AI 自动化 |
+| `POST /api/trigger` | POST | 可选：按 `WB_AI_SERVICE_AUTOMATION_ID` 唤醒 WorkBuddy AI 自动化 |
 | `GET /api/todo` | GET | 作战清单（学习作战室.md） |
 | `GET /api/log` | GET | 操作日志 |
 | `POST /api/draft` | POST | 保存头脑风暴草稿 |
@@ -508,7 +511,7 @@ workbench-forge/
 │   ├── server.js         ← Node.js 后端（零依赖，~985 行）
 │   ├── app.js            ← 前端逻辑（SPA，~2350 行）
 │   ├── index.html        ← 入口页
-│   ├── style.css         ← 紫罗兰夜色主题（~1200 行）
+│   ├── style.css         ← 青屿作战台设计系统
 │   ├── fx.js             ← 动效增强层
 │   └── assets/           ← 静态资源
 │       ├── banner.png
@@ -585,7 +588,7 @@ type: daily
 ---
 title: "数据空间"
 type: concept
-tags: ["数据要素", "基础设施", "可信流通"]
+tags: ["项目管理", "知识库", "方法论"]
 source:
   - "原始素材/文章/可信数据空间建设指南.md"
 review: pending   # pending / done / rejected

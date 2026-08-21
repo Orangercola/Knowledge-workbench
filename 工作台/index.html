@@ -3,15 +3,15 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>__USER_NAME__的工作台</title>
-<link rel="stylesheet" href="style.css?v=20260811l">
+<title>AI 知识工作台</title>
+<link rel="stylesheet" href="style.css?v=20260817d">
 </head>
 <body>
 <div class="app">
   <aside class="sidebar" id="sidebar">
     <div class="logo">
-      <h1><span class="logo-mark">◆</span> __USER_NAME__的<b>工作台</b></h1>
-      <p>我的 AI 知识总战场 · 数据要素</p>
+      <h1><span class="logo-mark">◆</span> AI 知识<b>工作台</b></h1>
+      <p>个人 AI 知识工作台 · 本地优先</p>
       <button class="side-collapse" id="sideCollapse" title="收起侧边栏">⟨</button>
     </div>
     <nav class="nav" id="nav">
@@ -24,15 +24,16 @@
       <div class="nav-group">作战工具</div>
       <div class="nav-item" data-page="brainstorm"><span class="ico">💡</span> 头脑风暴</div>
       <div class="nav-item" data-page="ai"><span class="ico">🤖</span> AI 对话</div>
-      <div class="nav-grp">🏡 __USER_NAME__的日常</div>
-      <div class="nav-item sub" data-page="todo"><span class="ico">🛠</span> 每日工作</div>
-      <div class="nav-item sub" data-page="ledger"><span class="ico">💰</span> 记账</div>
+      <div class="nav-group">日常管理</div>
+      <div class="nav-item" data-page="todo"><span class="ico">🛠</span> 每日工作</div>
+      <div class="nav-item" data-page="ledger"><span class="ico">💰</span> 记账</div>
       <div class="nav-item" data-page="studio"><span class="ico">🏭</span> 方案工坊</div>
       <div class="nav-item" data-page="archive"><span class="ico">🗒</span> 运行档案</div>
       <div class="nav-item" data-page="bookshelf"><span class="ico">📚</span> 书架</div>
     </nav>
     <div class="side-foot">
       <span id="statusDot" class="dot green"></span><span id="statusText">连接中…</span>
+      <button class="theme-toggle" id="themeToggle" title="切换深浅主题">🌙</button>
     </div>
   </aside>
 
@@ -42,9 +43,10 @@
       <span class="title" id="pageTitle">总览</span>
       <span class="crumb" id="pageCrumb"></span>
       <div class="search-box">
-        <input id="searchInput" placeholder="全库搜索：可信数据空间 / 政务平台 / 价格…" />
+        <input id="searchInput" placeholder="全库搜索：项目方案 / 会议纪要 / 价格…" />
         <span class="kbd">⏎</span>
       </div>
+      <button class="refresh-btn" id="refreshBtn" title="刷新 · 同步 Obsidian 的最新修改">🔄</button>
     </div>
     <div class="content" id="content"></div>
   </div>
@@ -52,39 +54,12 @@
 
 <div id="searchPanel" style="display:none"></div>
 
-<!-- 彩蛋：朱敦儒两首词对比卡（Logo 五连击触发） -->
-<div id="easterEgg" class="egg-overlay">
-  <div class="egg-card">
-    <button class="egg-close" title="关闭">×</button>
-    <div class="egg-header">
-      <span class="egg-badge young">少</span>
-      <span class="egg-title">朱敦儒 · 年少《鹧鸪天》</span>
-    </div>
-    <div class="egg-body">
-      <div class="egg-poem young">
-        我是清都山水郎，天教分付与疏狂。<br>
-        曾批给露支风敕，累奏留云借月章。<br>
-        诗万首，酒千觞。几曾着眼看侯王。<br>
-        玉楼金阙慵归去，且插梅花醉洛阳。
-      </div>
-      <div class="egg-divider"><span>时</span><span>光</span></div>
-      <div class="egg-poem old">
-        世事短如春梦，人情薄似秋云。<br>
-        不须计较苦劳心。万事元来有命。<br>
-        幸遇三杯酒好，况逢一朵花新。<br>
-        片时欢笑且相亲。明日阴晴未定。
-      </div>
-    </div>
-    <div class="egg-footer">几曾着眼看侯王 → 不须计较苦劳心</div>
-  </div>
-</div>
-
-<script defer src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
-<script defer src="https://cdn.jsdelivr.net/npm/minisearch@7.1.1/dist/umd/index.min.js"></script>
+<script defer src="assets/lib/marked.min.js?v=20260817e"></script>
+<script defer src="assets/lib/minisearch.min.js?v=20260817e"></script>
 <!-- pdf.js 本地版（书架 PDF 阅读器，离线可用） -->
 <script defer src="assets/pdfjs/pdf.min.js?v=20260808g"></script>
 <!-- d3 懒加载（仅知识星图页面需要），由 app.js 动态注入 -->
-<script defer src="app.js?v=20260811l"></script>
-<script defer src="fx.js?v=20260811l"></script>
+<script defer src="app.js?v=20260817e"></script>
+<script defer src="fx.js?v=20260817e"></script>
 </body>
 </html>

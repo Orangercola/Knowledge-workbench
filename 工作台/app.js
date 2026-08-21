@@ -1,10 +1,10 @@
-/* __USER_NAME__的专属工作台 — 前端逻辑 */
+/* 用户的专属工作台 — 前端逻辑 */
 "use strict";
 
 const $ = (s) => document.querySelector(s);
 const API = "";
-const TYPE_COLOR = { concept: "#7c3aed", source: "#0891b2", entity: "#16a34a", comparison: "#d97706", synthesis: "#dc2626", page: "#8b84ab", topic: "#6f4cff" };
-const TYPE_CN = { concept: "概念", source: "素材摘要", aians: "AI回答提炼", entity: "实体", comparison: "对比", synthesis: "综述", page: "页面", topic: "主题", template: "模板" };
+const TYPE_COLOR = { concept: "#0d9488", source: "#0891b2", entity: "#16a34a", comparison: "#d97706", synthesis: "#dc2626", page: "#7b869a", topic: "#4fa3b3" };
+const TYPE_CN = { concept: "概念", source: "素材摘要", aians: "AI回答提炼", entity: "实体", comparison: "对比", synthesis: "综述", essay: "笔记", event: "活动", page: "页面", topic: "主题", template: "模板" };
 
 const PAGES = {
   dashboard: { t: "总览 Dashboard", c: "知识库全景 · 战场状态" },
@@ -14,9 +14,9 @@ const PAGES = {
   wiki: { t: "知识层", c: "AI 编译的知识网络 · 概念 / 实体 / 摘要 / 对比 / 综述" },
   brainstorm: { t: "头脑风暴", c: "读库 → 追问 → 写回的知识复利闭环" },
   ai: { t: "AI 对话", c: "信箱桥 · 提问入箱 → Agent 读库回答 → 写回" },
-  daily: { t: "__USER_NAME__的日常", c: "每日工作 + 记账" },
-  todo: { t: "每日工作", c: "__USER_NAME__的日常 · 每日工作 + 待办事项（智能排期 · 依赖链）" },
-  ledger: { t: "记账", c: "__USER_NAME__的日常 · 记账手册（一二级分类联动）" },
+  daily: { t: "用户的日常", c: "每日工作 + 记账" },
+  todo: { t: "每日工作", c: "用户的日常 · 每日工作 + 待办事项（智能排期 · 依赖链）" },
+  ledger: { t: "记账", c: "用户的日常 · 记账手册（一二级分类联动）" },
   studio: { t: "方案工坊", c: "方案组件 + 实战产出" },
   archive: { t: "运行档案", c: "操作日志时间线" },
   bookshelf: { t: "书架", c: "本地 PDF / TXT 导入 · 待读→在读→已读 · 阅读追踪" },
@@ -60,6 +60,23 @@ function initSidebar() {
     localStorage.setItem("wbSidebar", "expanded");
   });
 }
+
+/* ---------- 主题切换（浅色默认 / 深色 AIHOT 风） ---------- */
+function initTheme() {
+  const apply = (theme) => {
+    document.documentElement.setAttribute("data-theme", theme);
+    const btn = $("#themeToggle");
+    if (btn) btn.textContent = theme === "dark" ? "☀️" : "🌙";
+  };
+  const saved = localStorage.getItem("wbTheme");
+  apply(saved === "dark" ? "dark" : "light");
+  $("#themeToggle").addEventListener("click", () => {
+    const cur = document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
+    const next = cur === "dark" ? "light" : "dark";
+    apply(next);
+    localStorage.setItem("wbTheme", next);
+  });
+}
 /* 阅读素材时默认收起（若用户手动展开过则尊重用户） */
 function autoCollapseForReading() {
   if (!sideUserExpanded) collapseSidebar();
@@ -78,7 +95,7 @@ function loadD3() {
   if (d3LoadPromise) return d3LoadPromise;
   d3LoadPromise = new Promise((resolve, reject) => {
     const script = document.createElement("script");
-    script.src = "https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js";
+    script.src = "assets/lib/d3.min.js?v=20260817e";
     script.onload = () => resolve(window.d3);
     script.onerror = reject;
     document.head.appendChild(script);
@@ -292,6 +309,7 @@ function renderReaderWithAI(el, rel, f, opts = {}) {
           <div class="read-toolbar">
             ${splitHost ? `<button class="btn ghost read-back" style="padding:5px 12px;font-size:12px;">← 返回列表</button>` : ""}
             <span class="read-title" title="${esc(rel)}">${esc(title)}</span>
+            <span id="essaySlot" style="margin-left:auto;display:flex;gap:6px;align-items:center;"></span>
             ${/输出\/查询\/answers\//.test(rel) ? `<button class="btn" id="aiAnsIngest" style="padding:5px 12px;font-size:12px;background:#2c2450;">📥 提炼入库</button>` : ""}
             <div class="read-font">
               <button id="fontMinus" title="减小字号">A−</button>
@@ -358,7 +376,27 @@ function renderReaderWithAI(el, rel, f, opts = {}) {
     </div>`;
   bindReaderAI(el, rel, f.body);
   bindWikiLinks();
+  /* 若本篇有笔记，在工具条显示「📝 笔记」入口链接（笔记不单独列于知识层） */
+  if (!rel.includes("/随笔/")) {
+    findEssay(rel).then((essayRel) => {
+      const slot = el.querySelector("#essaySlot");
+      if (slot && essayRel) {
+        slot.innerHTML = `<button class="btn ghost" id="openEssay" style="padding:5px 12px;font-size:12px;" title="打开本篇笔记">📝 笔记</button>`;
+        slot.querySelector("#openEssay").addEventListener("click", () => openFile(essayRel));
+      }
+    }).catch(() => {});
+  }
   el.scrollTop = 0;
+}
+
+/* 按命名规则查找原文对应的随笔（笔记）：<原文名>-随笔.md，同文档复用，同名追加序列号 */
+async function findEssay(rel) {
+  const base = rel.split("/").pop().replace(/\.md$/, "");
+  try {
+    const essays = await api("/api/essays");
+    const hit = essays.find((e) => e.rel.split("/").pop().startsWith(base + "-随笔"));
+    return hit ? hit.rel : null;
+  } catch { return null; }
 }
 
 function bindReaderAI(el, rel, body) {
@@ -382,14 +420,14 @@ function bindReaderAI(el, rel, body) {
         if (j.ok) {
           aiIng.textContent = "✅ 已入库待审";
           aiIng.style.background = "var(--green)";
-          setTimeout(() => { if (confirm("已生成素材摘要（待审）。要现在打开看看吗？")) openFile(j.rel); }, 200);
+          setTimeout(async () => { if (await dConfirm("📥 入库成功", "已生成素材摘要（待审）。要现在打开看看吗？")) openFile(j.rel); }, 200);
         } else {
           aiIng.disabled = false; aiIng.textContent = "📥 提炼入库";
-          alert("入库失败：" + j.error);
+          dflash("入库失败：" + j.error, true);
         }
       } catch (e) {
         aiIng.disabled = false; aiIng.textContent = "📥 提炼入库";
-        alert("入库失败：" + e.message);
+        dflash("入库失败：" + e.message, true);
       }
     });
   }
@@ -412,9 +450,26 @@ function bindReaderAI(el, rel, body) {
   const doc = el.querySelector(".ai-doc");
 
   /* ---------- 三模块：笔记 / 理解 / 入库 ---------- */
-  /* 阅读会话状态（按文件缓存） */
-  if (!el._rs) el._rs = { notes: [], quotes: [] }; // notes: {text, quote, time}; quotes: {quote, q, answer, time}
+  /* 阅读会话状态（按文件缓存 + 落盘持久化） */
+  if (!el._rs) {
+    el._rs = { notes: [], quotes: [], _rel: null };
+  }
   const rs = el._rs;
+  /* 按文档隔离：切换文档（rel 变化）时重置笔记/理解状态，并从 输出/查询/notes/ 重新加载 */
+  if (rs._rel !== rel) {
+    rs._rel = rel;
+    rs.notes = [];
+    rs.quotes = [];
+    rs._loaded = false;
+    api("/api/notes?rel=" + encodeURIComponent(rel)).then((d) => {
+      if (d && d.ok && d.notes && d.notes.length && !rs._loaded) {
+        rs._loaded = true;
+        rs.notes = d.notes;
+        renderNotes();
+        if (typeof el._renderIngest === "function") el._renderIngest();
+      }
+    }).catch(() => {});
+  }
   let curSelText = "";
 
   /* Tab 切换 */
@@ -456,7 +511,11 @@ function bindReaderAI(el, rel, body) {
         <div class="note-text">${esc(n.text)}</div>
         <div class="note-meta">${n.time} <span class="note-del" data-i="${i}">删除</span></div>
       </div>`).join("") : `<div class="note-empty">暂无笔记，选中正文或手写一条</div>`;
-    noteList.querySelectorAll(".note-del").forEach((d) => d.addEventListener("click", () => { rs.notes.splice(Number(d.dataset.i), 1); renderNotes(); if (typeof el._renderIngest === "function") el._renderIngest(); }));
+    noteList.querySelectorAll(".note-del").forEach((d) => d.addEventListener("click", () => { rs.notes.splice(Number(d.dataset.i), 1); renderNotes(); if (typeof el._renderIngest === "function") el._renderIngest(); saveNotes(); }));
+  }
+  /* 笔记按文档持久化到 输出/查询/notes/（防止切页丢失） */
+  function saveNotes() {
+    try { fetch(API + "/api/notes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rel, notes: rs.notes }) }).catch(() => {}); } catch (e) {}
   }
   renderNotes();
   el.querySelector("#noteAdd").addEventListener("click", () => {
@@ -467,6 +526,7 @@ function bindReaderAI(el, rel, body) {
     curSelText = ""; curSel.style.display = "none";
     renderNotes();
     if (typeof el._renderIngest === "function") el._renderIngest();
+    saveNotes();
   });
 
   /* 理解：发送本地 Agent —— 发送即入列（进度/历史可见） */
@@ -580,29 +640,57 @@ async function openFile(rel, opts = {}) {
     return;
   }
   const f = await api("/api/file?path=" + encodeURIComponent(rel));
-  if (!f || f.error) { alert("文件不存在：" + rel); return; }
+  if (!f || f.error) { dflash("文件不存在：" + rel, true); return; }
   /* 浏览历史：非"返回"触发时，记录当前页面作为上一个页面（供 ← 返回 回溯）。
      统一存对象 {page, rel}，与书架阅读器（openBookReader）的格式一致 */
   if (!opts.fromBack && currentRel && currentRel !== rel) backStack.push({ page: currentPage, rel: currentRel });
   currentRel = rel;
   const back = currentPage === "library" || currentPage === "wiki" || currentPage === "hotspots";
   const isPending = f.fm && f.fm.review === "pending";
+  const isRejected = f.fm && f.fm.review === "rejected";
+  const isReingest = f.fm && f.fm.reingest;
+  const isReingesting = isReingest && f.fm.reingest !== "done";
+  const isReingestDone = f.fm && f.fm.reingest === "done";
+  const showRev = isPending || isRejected || isReingest;
   $("#content").innerHTML = `
     <div class="page active">
       <div class="page-file-head" style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap;">
         <button class="btn ghost" onclick="goBack()">← 返回</button>
         <span class="page-h" style="margin:0;">${esc(f.fm.title || rel.split("/").pop().replace(".md", ""))}</span>
-        ${isPending ? `
+        <button class="btn ghost" id="btnEdit" style="margin-left:auto;padding:6px 14px;font-size:12px;" title="编辑正文（保留 frontmatter），保存后与 Obsidian 双向同步">✏️ 编辑</button>
+        ${showRev ? `
           <span style="margin-left:auto;display:flex;gap:8px;align-items:center;">
-            <span class="pending-badge" id="revBadge" style="font-size:11px;">📝 待审核</span>
-            <button class="btn" id="revOk" style="padding:6px 14px;font-size:12px;">✅ 确认通过</button>
-            <button class="btn ghost" id="revRej" style="padding:6px 14px;font-size:12px;">🔁 打回重写</button>
+            <span class="pending-badge" id="revBadge" style="font-size:11px;">${isReingestDone ? "♻️ 已重写待验收" : isReingesting ? "♻️ 重写中" : isPending ? "📝 待审核" : "🔁 已打回"}</span>
+            ${isPending && !isReingesting ? `<button class="btn" id="revOk" style="padding:6px 14px;font-size:12px;">✅ 确认通过</button>` : ""}
+            <button class="btn ghost" id="revRej" style="padding:6px 14px;font-size:12px;">${isReingestDone ? "♻️ 已重写 · 可再打回" : isReingesting ? "♻️ 重写中 · 可再打回" : isPending ? "🔁 打回重写" : "♻️ 重新生成"}</button>
           </span>` : ""}
       </div>
       <div id="readerHost"></div>
     </div>`;
   renderReaderWithAI($("#readerHost"), rel, f);
-  if (isPending) {
+  /* ✏️ 内联编辑：编辑正文（保留 frontmatter），保存写回 → 重新渲染 */
+  const editBtn = $("#btnEdit");
+  if (editBtn) {
+    editBtn.addEventListener("click", () => {
+      const host = $("#readerHost");
+      host.innerHTML = `
+        <textarea id="edBody" style="width:100%;min-height:60vh;background:var(--bg2);color:var(--text);border:1px solid var(--line);border-radius:12px;padding:16px;font-size:13.5px;font-family:ui-monospace,Consolas,monospace;line-height:1.75;resize:vertical;">${esc(f.body)}</textarea>
+        <div style="display:flex;gap:8px;margin-top:10px;justify-content:flex-end;align-items:center;">
+          <span style="font-size:11px;color:var(--text3);margin-right:auto;">💡 仅编辑正文，frontmatter（类型/审核状态等）保持不变；保存后 Obsidian 同步可见</span>
+          <button class="btn ghost" id="edCancel">取消</button>
+          <button class="btn" id="edSave">💾 保存</button>
+        </div>`;
+      $("#edCancel").addEventListener("click", () => openFile(rel, { fromBack: true }));
+      $("#edSave").addEventListener("click", async () => {
+        const body = $("#edBody").value;
+        const r = await fetch(API + "/api/file", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rel, body }) });
+        const j = await r.json();
+        if (j.ok) { dflash("✅ 已保存 · Obsidian 可同步看到"); openFile(rel, { fromBack: true }); }
+        else dflash("保存失败：" + j.error, true);
+      });
+    });
+  }
+  if (showRev) {
     const okBtn = $("#revOk");
     const rejBtn = $("#revRej");
     const badge = $("#revBadge");
@@ -610,20 +698,39 @@ async function openFile(rel, opts = {}) {
       badge.textContent = label;
       badge.style.background = act === "done" ? "rgba(22,163,74,.14)" : "rgba(217,119,6,.14)";
       badge.style.color = act === "done" ? "var(--green)" : "var(--amber)";
-      okBtn.disabled = true; rejBtn.disabled = true;
-      okBtn.style.opacity = ".5"; rejBtn.style.opacity = ".5";
+      if (okBtn) okBtn.disabled = true;
+      rejBtn.disabled = true;
+      if (okBtn) okBtn.style.opacity = ".5";
+      rejBtn.style.opacity = ".5";
     };
-    okBtn.addEventListener("click", async () => {
+    if (okBtn) okBtn.addEventListener("click", async () => {
       const r = await fetch(API + "/api/review", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rel, action: "done" }) });
       const j = await r.json();
       if (j.ok) { finish("done", "✅ 已确认通过"); setTimeout(() => { if (currentPage === "dashboard") navigate("dashboard"); }, 1500); }
-      else alert("操作失败：" + j.error);
+      else dflash("操作失败：" + j.error, true);
     });
     rejBtn.addEventListener("click", async () => {
-      const r = await fetch(API + "/api/review", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rel, action: "reject" }) });
+      /* 打回重写 / 重新生成 → 投递真实重写任务：AI 基于源素材重新提炼，覆盖写回（保持 pending） */
+      let comment = "";
+      if (isPending) {
+        const cmt = await dPrompt("🔁 打回重写", [{
+          id: "comment",
+          label: "重写意见（为什么打回？抓错重点/太水/漏了什么…）",
+          type: "text",
+          placeholder: "如：太水，漏了定价机制；重点应放在授权运营流程",
+          value: "",
+        }]).catch(() => null);
+        if (cmt === null) return; // 取消
+        comment = (cmt && cmt.comment || "").trim();
+      }
+      const r = await fetch(API + "/api/reingest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rel, comment }) });
       const j = await r.json();
-      if (j.ok) { finish("reject", "🔁 已打回重写"); setTimeout(() => { if (currentPage === "dashboard") navigate("dashboard"); }, 1500); }
-      else alert("操作失败：" + j.error);
+      if (j.ok) {
+        finish("reject", isPending ? "🔁 已投递重写任务" : "♻️ 已重新生成");
+        dflash("已投递重写任务" + (j.triggered ? "，AI 正在重新提炼，稍后自动覆盖写回。刷新页面可见新版。" : "，等待 AI 取件（兜底 2 小时）。"));
+        setTimeout(() => { if (currentPage === "dashboard") navigate("dashboard"); }, 1500);
+      }
+      else dflash("投递失败：" + j.error, true);
     });
   }
 }
@@ -735,7 +842,7 @@ async function bindWikiLinks() {
         const tname = target.split("/").pop();
         let hit2 = raws.find((f) => relOf(f) === target || relOf(f).split("/").pop().replace(/\.(md|png|jpg|jpeg|webp|gif|pptx|ppt)$/i, "") === tname);
         if (hit2) openFile(relOf(hit2));
-        else alert("未找到页面：" + target);
+        else dflash("未找到页面：" + target, true);
       }
       return;
     }
@@ -757,6 +864,13 @@ async function bindWikiLinks() {
         const idx = Array.prototype.indexOf.call(box.querySelectorAll("img.src-thumb"), thumb);
         openLightbox(list, idx);
       }
+    }
+    /* 4. 外部链接（http/https，非本机）→ 新标签/系统浏览器打开，绝不夺舍工作台 */
+    const ext = e.target.closest ? e.target.closest('a[href^="http"]') : null;
+    if (ext) {
+      e.preventDefault();
+      if (!/localhost|127\.0\.0\.1/.test(ext.href)) window.open(ext.href, "_blank", "noopener,noreferrer");
+      return;
     }
   });
 }
@@ -823,24 +937,33 @@ async function renderPage(page) {
 
 /* --- Dashboard --- */
 async function renderDashboard(c) {
+  const today = fmtDate(new Date());
   const s = await api("/api/stats");
   const todo = await api("/api/todo");
+  const lt = await api("/api/longterm");
+  const daily = await api("/api/daily?date=" + today);
+  const essays = await api("/api/essays");
   const cnt = s.counts;
   const done = todo.filter((t) => t.done).length;
+  const todayTodos = (daily.todos || []).filter((t) => !t.done);
+  const overdueTodos = (daily.allTodos || []).filter((t) => !t.done && t.date < today).sort((a, b) => a.date.localeCompare(b.date));
   const pct = todo.length ? Math.round((done / todo.length) * 100) : 0;
   const ringR = 26, ringC = 2 * Math.PI * ringR;
   const groups = (s.groups || []).filter((g) => g.k !== "全部");
   const gMax = Math.max(...groups.map((g) => g.count), 1);
+  const pendingReviewCount = s.pendingReviewList?.length || 0;
+  const reviewCompact = pendingReviewCount < 8;
+
   c.innerHTML = `
-    <div class="page active">
+    <div class="page active dash-page">
       <div class="dash-banner">
         <img src="/assets/banner.png" alt="" onerror="this.style.display='none'">
         <div class="banner-overlay">
-          <div class="banner-title">💙 __USER_NAME__的专属工作台</div>
+          <div class="banner-title">💙 用户的专属工作台</div>
           <div class="banner-sub">知识库 · 工作台 · 生活舱 —— 同一份资产，三个战场</div>
         </div>
       </div>
-      <div class="grid c4" style="margin-bottom:14px;">
+      <div class="grid c4 dash-stats">
         <div class="stat"><div class="num">${s.wikiTotal}</div><div class="lbl">知识层页面</div><div class="sub">概念 ${cnt.concept} · 实体 ${cnt.entity} · 摘要 ${cnt.source}</div></div>
         <div class="stat"><div class="num">${s.rawFiles}</div><div class="lbl">素材转换稿</div><div class="sub">原始素材 / 文章</div></div>
         <div class="stat"><div class="num">${cnt.comparison + cnt.synthesis}</div><div class="lbl">对比 + 综述</div><div class="sub">横向分析成果</div></div>
@@ -858,23 +981,13 @@ async function renderDashboard(c) {
           </div>
         </div>
       </div>
-      <div class="grid c3" style="margin-bottom:14px;">
-        <div class="card" style="grid-column:span 1">
-          <h3>🎯 战场状态</h3>
-          <div style="font-size:13px;line-height:2;color:var(--text2);">
-            <div>◆ 闭环：<span style="color:var(--green)">精读→知识卡→案例卡→方案→复盘 ✅</span></div>
-            <div>◆ 阶段：第二阶段（14 天第一阶段 100%）</div>
-            <div>◆ 六模块：案例/方案/复盘 🟢 · 情报/地图 🟡 · 作战室 🔴</div>
-            <div>◆ 制度脉络：国家 → 省 → 市 三级贯通</div>
-            <div>◆ 摄入质检：${s.pendingReview ? `<span class="pending-badge">📝 ${s.pendingReview} 张待审</span>` : `<span style="color:var(--green)">✅ 全部确认</span>`} ${s.pendingReview ? `<span style="font-size:11px;color:var(--text3);">见下方模块</span>` : ""}</div>
-          </div>
-        </div>
-        <div class="card" style="grid-column:span 1">
-          <h3>📝 摄入质检 <span style="font-weight:400;font-size:11px;color:var(--text3);">点卡片查看 → 确认/打回</span></h3>
-          <div id="reviewList" style="max-height:230px;overflow-y:auto;">
+      <div class="dash-grid">
+        <div class="card dash-review-card dash-wide ${reviewCompact ? "is-compact" : "is-scroll"}">
+          <h3>📝 摄入质检 <span style="font-weight:400;font-size:11px;color:var(--text3);">${pendingReviewCount} 张待审 · ${reviewCompact ? "少量待审自动收缩" : "列表滚动阅览"} · 点卡片查看 → 确认/打回</span></h3>
+          <div id="reviewList" class="review-list ${reviewCompact ? "is-compact" : "is-scroll"}">
             ${s.pendingReviewList && s.pendingReviewList.length ? s.pendingReviewList.map((r, i) => `
               <div class="rev-item" data-rel="${esc(r.rel)}" data-title="${esc(r.title)}" style="${i > 0 ? "border-top:1px solid var(--line);" : ""}">
-                <span class="rev-open">${esc(r.title)}</span>
+                <span class="rev-open">${esc(r.title)}${r.reingest ? ` <span style="font-size:11px;white-space:nowrap;color:${r.reingest === "done" ? "var(--green)" : "var(--amber)"};" title="${r.reingest === "done" ? "AI 已按意见重写，待你验收" : "已投递重写任务，AI 正在按意见重写"}">${r.reingest === "done" ? "♻️ 已重写待验收" : "♻️ 重写中"}</span>` : ""}</span>
                 <span class="rev-actions">
                   <button class="rev-btn ok" data-act="done" title="确认通过">✅</button>
                   <button class="rev-btn no" data-act="reject" title="打回重写">🔁</button>
@@ -882,8 +995,62 @@ async function renderDashboard(c) {
               </div>`).join("") : `<div style="color:var(--green);padding:12px 0;text-align:center;">✅ 无待审卡片</div>`}
           </div>
         </div>
-        <div class="card" style="grid-column:span 1">
-          <h3>📋 作战清单（ToDo）</h3>
+        <div class="card dash-status-card">
+          <h3>🎯 战场状态</h3>
+          <div style="font-size:12.5px;line-height:1.8;color:var(--text2);">
+            <div>◆ 闭环：<span style="color:var(--green)">精读→知识卡→案例卡→方案→复盘 ✅</span></div>
+            <div>◆ 阶段：第二阶段（14 天第一阶段 100%）</div>
+            <div>◆ 六模块：案例/方案/复盘 🟢 · 情报/地图 🟡 · 作战室 🔴</div>
+            <div>◆ 摄入质检：${s.pendingReview ? `<span class="pending-badge">📝 ${s.pendingReview} 张待审</span>` : `<span style="color:var(--green)">✅ 全部确认</span>`}</div>
+          </div>
+          <div class="dash-task-section">
+            <div class="dash-task-head">
+              <span class="dash-task-title">🔁 长期待办</span>
+              <span class="dash-task-meta">${(lt && lt.items || []).filter((x) => !x.done).length} 项 · 完结自动归档当天</span>
+            </div>
+            <div id="ltList">
+              ${(lt && lt.items || []).length ? (lt.items || []).map((t, i) => `
+                <div data-i="${i}" data-text="${esc(t.text)}" class="dash-mini-task ${t.done ? "done" : ""}">
+                  <span class="lt-check dash-mini-check" style="color:${t.done ? "var(--green)" : "var(--text3)"}">${t.done ? "✅" : "☐"}</span>
+                  <span class="dash-mini-text">${esc(t.text)}</span>
+                  <span class="lt-del dash-mini-del" title="删除">✕</span>
+                </div>`).join("") : `<div class="dash-empty">暂无长期待办</div>`}
+            </div>
+            <div class="dash-add-row">
+              <input id="ltInput" placeholder="添加长期待办…">
+              <button class="btn" id="ltAdd">＋</button>
+            </div>
+          </div>
+          <div class="dash-task-section">
+            <div class="dash-task-head">
+              <span class="dash-task-title">☀️ 今日待办</span>
+              <span class="dash-task-meta">${today} · ${todayTodos.length} 项未完成</span>
+            </div>
+            <div id="todayTodoList">
+              ${todayTodos.length ? todayTodos.slice(0, 8).map((t) => `
+                <div class="dash-mini-task today" data-page="todo">
+                  <span class="dash-mini-check">☐</span>
+                  <span class="dash-mini-text">${esc(t.text)}</span>
+                </div>`).join("") + (todayTodos.length > 8 ? `<div class="dash-more" data-page="todo">还有 ${todayTodos.length - 8} 项，去每日工作查看 →</div>` : "") : `<div class="dash-empty">今日暂无待办，甲板很干净</div>`}
+            </div>
+          </div>
+          <div class="dash-task-section dash-overdue-section">
+            <div class="dash-task-head">
+              <span class="dash-task-title">🔥 超期待办</span>
+              <span class="dash-task-meta">${overdueTodos.length} 项 · 应完成但未完成</span>
+            </div>
+            <div id="overdueTodoList">
+              ${overdueTodos.length ? overdueTodos.slice(0, 8).map((t) => `
+                <div class="dash-mini-task overdue" data-page="todo" title="${esc(t.date)}">
+                  <span class="dash-mini-date">${esc(t.date.slice(5))}</span>
+                  <span class="dash-mini-text">${esc(t.text)}</span>
+                </div>`).join("") + (overdueTodos.length > 8 ? `<div class="dash-more" data-page="todo">还有 ${overdueTodos.length - 8} 项，去每日工作处理 →</div>` : "") : `<div class="dash-empty">没有超期待办，雷达清屏</div>`}
+            </div>
+          </div>
+        </div>
+        <div class="card dash-todo-card">
+          <h3>📋 作战清单（ToDo）<span style="font-weight:400;font-size:11px;color:var(--text3);">${todo.length} 项</span></h3>
+          <div class="todo-scroll">
           ${todo.length ? todo.map((t) => {
             const sec = t.section || "";
             const secShort = /^W\d+/.test(sec) ? sec.match(/^W\d+/)[0] : (sec.length > 10 ? sec.slice(0, 10) + "…" : sec);
@@ -893,11 +1060,24 @@ async function renderDashboard(c) {
               <span style="flex:1;min-width:0;word-break:break-word;color:${t.done ? "var(--text3)" : "var(--text)"};${t.done ? "text-decoration:line-through" : ""}">${esc(t.text)}</span>
               <span style="flex-shrink:0;font-size:11px;color:var(--text3);white-space:nowrap;" title="${esc(sec)}">${esc(secShort)}</span>
             </div>`;}).join("") : "<div style='color:var(--text3)'>暂无任务</div>"}
+          </div>
         </div>
-      </div>
-      <div class="grid c3" style="margin-bottom:14px;">
-        <div class="card" style="grid-column:span 1">
-          <h3>🗃 素材分布（${s.rawFiles} 篇）</h3>
+        <div class="card dash-essay-card">
+          <h3>📝 用户笔记 <span style="font-weight:400;font-size:11px;color:var(--text3);">${essays.length} 篇 · 存笔记自动生成</span></h3>
+          <div id="essayList">
+            ${essays.length ? essays.map((e) => `
+              <div class="essay-item" data-rel="${esc(e.rel)}" style="cursor:pointer;padding:7px 0;border-bottom:1px solid var(--line);">
+                <div style="font-size:12.5px;color:var(--acc);font-weight:600;display:flex;align-items:center;gap:6px;"><span>📄</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(e.title)}</span><span style="font-size:10.5px;color:var(--text3);flex-shrink:0;">${esc((e.updated || "").slice(5))}</span></div>
+                <div style="font-size:11.5px;color:var(--text3);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-top:3px;line-height:1.5;">${esc(e.preview || "（暂无正文）")}</div>
+              </div>`).join("") : `<div style="color:var(--text3);font-size:12px;padding:8px 0;">暂无随笔 · 阅读时写笔记自动生成</div>`}
+          </div>
+        </div>
+        <div class="card dash-recent-card">
+          <h3>🕘 最近操作</h3>
+          <div class="tl">${s.recent.map((l) => `<div class="tl-item"><span class="tl-time">${esc(l.slice(0, 17))}</span><div class="tl-text">${esc(l.slice(18))}</div></div>`).join("")}</div>
+        </div>
+        <div class="card dash-groups-card dash-wide">
+          <h3>🗃 素材分布 <span style="font-weight:400;font-size:11px;color:var(--text3);">${s.rawFiles} 篇</span></h3>
           <div style="padding-top:4px;">
             ${groups.map((g) => `
               <div class="mini-row">
@@ -907,10 +1087,6 @@ async function renderDashboard(c) {
               </div>`).join("")}
           </div>
           <div style="font-size:11px;color:var(--text3);margin-top:8px;">按文件名关键词归类 · 点击素材库页可分组浏览</div>
-        </div>
-        <div class="card" style="grid-column:span 2">
-          <h3>🕘 最近操作</h3>
-          ${s.recent.map((l) => `<div class="tl-item"><span class="tl-time">${esc(l.slice(0, 17))}</span><div class="tl-text">${esc(l.slice(18))}</div></div>`).join("")}
         </div>
       </div>
     </div>`;
@@ -925,6 +1101,30 @@ async function renderDashboard(c) {
         const item = b.closest(".rev-item");
         const rel = item.dataset.rel;
         const act = b.dataset.act;
+        if (act === "reject") {
+          /* 打回重写 → 投递真实重写任务（AI 重新提炼并覆盖写回） */
+          const cmt = await dPrompt("🔁 打回重写", [{
+            id: "comment",
+            label: "重写意见（为什么打回？抓错重点/太水/漏了什么…）",
+            type: "text",
+            placeholder: "如：太水，漏了定价机制；重点应放在授权运营流程",
+            value: "",
+          }]).catch(() => null);
+          if (cmt === null) return; // 取消
+          const comment = (cmt && cmt.comment || "").trim();
+          const r = await fetch(API + "/api/reingest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rel, comment }) });
+          const j = await r.json();
+          if (j.ok) {
+            item.style.opacity = "0.3";
+            item.style.pointerEvents = "none";
+            item.querySelector(".rev-open").textContent = "🔁 " + item.dataset.title;
+            dflash("已投递重写任务" + (j.triggered ? "，AI 正在重新提炼。" : "，等待 AI 取件（兜底 2 小时）。"));
+            setTimeout(() => renderDashboard(c), 800); // 刷新看板
+          } else {
+            dflash("投递失败：" + j.error, true);
+          }
+          return;
+        }
         const r = await fetch(API + "/api/review", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rel, action: act }) });
         const j = await r.json();
         if (j.ok) {
@@ -933,10 +1133,57 @@ async function renderDashboard(c) {
           item.querySelector(".rev-open").textContent = (act === "done" ? "✅ " : "🔁 ") + item.dataset.title;
           setTimeout(() => renderDashboard(c), 800); // 刷新看板
         } else {
-          alert("操作失败：" + j.error);
+          dflash("操作失败：" + j.error, true);
         }
       });
     });
+  }
+  /* 用户笔记模块：点随笔 → 打开知识层随笔文件 */
+  const essayList = $("#essayList");
+  if (essayList) {
+    essayList.querySelectorAll(".essay-item").forEach((el) => el.addEventListener("click", () => openFile(el.dataset.rel)));
+  }
+  document.querySelectorAll("#todayTodoList [data-page='todo'], #overdueTodoList [data-page='todo']").forEach((el) => {
+    el.addEventListener("click", () => navigate("todo"));
+  });
+  /* 长期待办模块：勾选完结 → 归档到当天；删除；新增 */
+  const ltList = $("#ltList");
+  if (ltList) {
+    const refreshLT = () => renderDashboard(c);
+    ltList.querySelectorAll(".lt-check").forEach((el) => el.addEventListener("click", async () => {
+      const row = el.closest("[data-i]");
+      const text = row.dataset.text;
+      const ok = await dConfirm("🔁 完结长期待办", `确认将「${text}」标记完成，并归档到今天的已办结事项？`);
+      if (!ok) return; // 取消
+      const r = await fetch(API + "/api/longterm/done", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
+      const j = await r.json();
+      if (j.ok) { dflash("🎉 已完结 · 归档到 " + j.archived + " 的已办结事项"); refreshLT(); }
+      else dflash("操作失败：" + j.error, true);
+    }));
+    ltList.querySelectorAll(".lt-del").forEach((el) => el.addEventListener("click", async () => {
+      const row = el.closest("[data-i]");
+      const text = row.dataset.text;
+      const ok = await dConfirm("🗑 删除长期待办", `确认删除「${text}」？（会同时归档到今天的已办结事项）`);
+      if (!ok) return; // 取消
+      const r = await fetch(API + "/api/longterm/done", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
+      const j = await r.json();
+      if (j.ok) refreshLT(); // 删除也走完结归档（到当天）
+      else dflash("操作失败：" + j.error, true);
+    }));
+    const ltInput = $("#ltInput");
+    const ltAdd = $("#ltAdd");
+    if (ltInput && ltAdd) {
+      const doAdd = async () => {
+        const v = (ltInput.value || "").trim();
+        if (!v) return;
+        const r = await fetch(API + "/api/longterm", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: v }) });
+        const j = await r.json();
+        if (j.ok) { ltInput.value = ""; refreshLT(); }
+        else dflash("添加失败：" + j.error, true);
+      };
+      ltAdd.addEventListener("click", doAdd);
+      ltInput.addEventListener("keydown", (e) => { if (e.key === "Enter") doAdd(); });
+    }
   }
 }
 
@@ -1055,20 +1302,20 @@ function drawGraphD3(g) {
 
   node.append("circle")
     .attr("r", nodeRadius)
-    .attr("fill", (d) => TYPE_COLOR[d.type] || "#8b84ab")
+    .attr("fill", (d) => TYPE_COLOR[d.type] || "#7b869a")
     .attr("fill-opacity", 0.16)
-    .attr("stroke", (d) => TYPE_COLOR[d.type] || "#8b84ab")
+    .attr("stroke", (d) => TYPE_COLOR[d.type] || "#7b869a")
     .attr("stroke-width", 1.5);
 
   node.append("text")
     .attr("y", (d) => nodeRadius(d) + 11)
     .attr("text-anchor", "middle")
     .attr("font-size", 10)
-    .attr("fill", "#6b6485")
+    .attr("fill", "#5c6672")
     .style("pointer-events", "none")
     .text((d) => (d.title || d.name).slice(0, 14));
 
-  node.on("mouseover", function() { d3.select(this).select("circle").attr("stroke-width", 2.5).attr("filter", "drop-shadow(0 0 6px rgba(111,76,255,0.45))"); })
+  node.on("mouseover", function() { d3.select(this).select("circle").attr("stroke-width", 2.5).attr("filter", "drop-shadow(0 0 6px rgba(79,163,179,0.45))"); })
     .on("mouseout", function() { d3.select(this).select("circle").attr("stroke-width", 1.5).attr("filter", null); })
     .on("click", (event, d) => { event.stopPropagation(); showGraphNeighbors(d.rel); });
 
@@ -1103,16 +1350,16 @@ async function renderLibrary(c) {
   /* 素材类型（对应 原始素材/ 一级子目录 + AI回答） */
   const TYPES = ["全部", "ppt", "文章", "热点", "论文", "逐字稿", "数据", "随手笔记", "图片", "附件", "AI回答"];
   c.innerHTML = `<div class="page active"><div class="split">
-    <div class="file-tree">
-      <div style="display:flex;gap:8px;padding:8px;margin-bottom:6px;">
-        <input class="brain-input" style="min-height:0;padding:8px 12px;font-size:13px;" id="libFilter" placeholder="过滤文件名…">
+    <div class="file-tree lib-tree">
+      <div class="lib-search-row">
+        <input class="brain-input lib-filter" id="libFilter" placeholder="过滤文件名…">
       </div>
-      <div style="display:flex;gap:6px;padding:0 8px 6px;flex-wrap:wrap;align-items:center;">
+      <div class="lib-controls">
         <select id="libType" class="lib-select" title="素材类型"><option value="全部">📁 素材类型</option></select>
         <select id="libGroup" class="lib-select" title="内容分类"><option value="全部">🏷 内容分类</option></select>
-        <button class="btn ghost lib-sort" id="libSort" style="padding:5px 10px;font-size:11px;margin-left:auto;" title="按入库时间排序">⏱ 时间 ↓</button>
+        <button class="btn ghost lib-sort" id="libSort" title="按入库时间排序">⏱ 时间 ↓</button>
       </div>
-      <div id="libList"></div>
+      <div id="libList" class="lib-list"></div>
     </div>
     <div class="reader-pane" id="libReader"><div class="empty">← 从左侧选择一篇素材<br><br>${rawCache.length} 条素材 · 双筛 + 时间排序 · 可全文阅读</div></div>
   </div></div>`;
@@ -1147,8 +1394,9 @@ async function renderLibrary(c) {
     return items;
   }
   /* 树形渲染：按 rel 路径组织（Obsidian 目录树结构） */
-  if (!window.__libTreeState) window.__libTreeState = {}; // 全局折叠状态
+  if (!window.__libTreeState) window.__libTreeState = {};
   const treeState = window.__libTreeState;
+  Object.keys(treeState).forEach((key) => delete treeState[key]); // 每次进入素材库都清空展开态
   function renderTree(items) {
     /* 构建树: { type: { folderName: { fileName: rel } } } */
     const tree = {}; // type -> { folder: [files] } 或 type -> [files]
@@ -1175,11 +1423,11 @@ async function renderLibrary(c) {
     for (const type of types) {
       const t = tree[type];
       const typeKey = "T:" + type;
-      /* 默认：全部时类型展开（文件夹折叠）；选具体类型时自动展开该类型 */
-      const typeOpen = treeState[typeKey] === true || (isAll && treeState[typeKey] === undefined) || (!isAll && typeEl.value === type);
+      /* 默认收起；仅用户在当前素材库页面手动展开后才展开 */
+      const typeOpen = treeState[typeKey] === true;
       const folderNames = Object.keys(t.folders).sort();
       const fcnt = t.files.length + folderNames.length;
-      html += `<div class="tree-node tree-type ${typeOpen ? "open" : ""}" data-key="${typeKey}"><span class="tree-arrow">${typeOpen ? "▾" : "▸"}</span><span class="tree-ico">${typeIco(type)}</span> ${esc(type)} <span class="tree-cnt">${fcnt}</span></div>`;
+      html += `<div class="tree-node tree-type ${typeOpen ? "open" : ""}" data-key="${typeKey}"><span class="tree-arrow">${typeOpen ? "▾" : "▸"}</span><span class="tree-ico">${typeIco(type)}</span><span class="tree-name">${esc(type)}</span><span class="tree-cnt">${fcnt}</span></div>`;
       if (typeOpen) {
         html += `<div class="tree-children" data-parent="${typeKey}">`;
         for (const folder of folderNames) {
@@ -1187,7 +1435,7 @@ async function renderLibrary(c) {
           /* 文件夹默认折叠；"全部"时类型层展开但文件夹折叠 */
           const fOpen = treeState[fKey] === true;
           const files = convFirst(t.folders[folder]);
-          html += `<div class="tree-node tree-folder ${fOpen ? "open" : ""}" data-key="${fKey}"><span class="tree-arrow">${fOpen ? "▾" : "▸"}</span><span class="tree-ico">📂</span> ${esc(folder)} <span class="tree-cnt">${files.length}</span></div>`;
+          html += `<div class="tree-node tree-folder ${fOpen ? "open" : ""}" data-key="${fKey}"><span class="tree-arrow">${fOpen ? "▾" : "▸"}</span><span class="tree-ico">📂</span><span class="tree-name">${esc(folder)}</span><span class="tree-cnt">${files.length}</span></div>`;
           if (fOpen) {
             html += `<div class="tree-children" data-parent="${fKey}">` + files.map(fileHtml).join("") + `</div>`;
           }
@@ -1213,21 +1461,25 @@ async function renderLibrary(c) {
     const dt = f.mtime ? new Date(f.mtime).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" }) : "";
     const star = isConv ? `<span class="star" title="转换稿">⭐</span>` : "";
     const cls = "f " + (currentRel === rel ? "active" : "") + (isConv ? " is-conv" : "");
-    return `<div class="${cls}" data-rel="${esc(rel)}">${star}<span class="lib-type">${esc(f.type || "")}</span> ${esc(name)}<span class="lib-date">${dt}</span></div>`;
+    return `<div class="${cls}" data-rel="${esc(rel)}"><span class="lib-type">${star}${esc(f.type || "")}</span><span class="lib-name">${esc(name)}</span><span class="lib-date">${dt}</span></div>`;
   }
   function typeIco(t) {
     return ({ ppt: "📽", 文章: "📄", 图片: "🖼", 热点: "🔥", 论文: "📜", 逐字稿: "🎙", 数据: "📊", 随手笔记: "✍️", 附件: "📎" })[t] || "📁";
   }
-  /* 树节点点击：文件夹展开/折叠（仅绑定一次，委托最新 renderList） */
+  /* 树节点点击：文件夹展开/折叠。
+     用 document 级事件委托（只绑一次），每次点击动态定位当前 #libList，
+     避免 listEl 随页面重建后监听器丢失（先进 AI 对话再回素材库失灵的根因） */
   if (!window.__libTreeBound) {
     window.__libTreeBound = true;
-    listEl.addEventListener("click", (e) => {
+    document.addEventListener("click", (e) => {
       const node = e.target.closest(".tree-node");
       if (!node) return;
+      const listEl = $("#libList");
+      if (!listEl || !listEl.contains(node)) return; // 仅素材库树内
       const key = node.dataset.key;
       if (key && (key.startsWith("T:") || key.includes("/"))) {
         treeState[key] = node.classList.contains("open") ? false : true;
-        if (typeof window.renderListRef === "function") window.renderListRef($("#libFilter").value.trim());
+        if (typeof window.renderListRef === "function") window.renderListRef($("#libFilter")?.value.trim() || "");
       }
     });
   }
@@ -1247,7 +1499,7 @@ async function renderLibrary(c) {
         const name = raw.replace(/\.(md|png|jpg|jpeg|webp|gif|pptx|ppt)$/i, "").replace("-转换稿", "");
         const dt = f.mtime ? new Date(f.mtime).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" }) : "";
         const star = isConv ? `<span class="star" title="转换稿">⭐</span>` : "";
-        return `<div class="f ${isConv ? "is-conv" : ""}" data-rel="${esc(rel)}">${star}<span class="lib-type">${esc(f.type || "")}</span> ${esc(name)}<span class="lib-date">${dt}</span></div>`;
+        return `<div class="f ${isConv ? "is-conv" : ""}" data-rel="${esc(rel)}"><span class="lib-type">${star}${esc(f.type || "")}</span><span class="lib-name">${esc(name)}</span><span class="lib-date">${dt}</span></div>`;
       }).join("") + (items.length > 400 ? `<div style="padding:8px;color:var(--text3);font-size:11px;">…共 ${items.length} 条，输入关键字过滤</div>` : "");
     }
     listEl.querySelectorAll(".f").forEach((el) => el.addEventListener("click", async () => {
@@ -1358,11 +1610,12 @@ async function renderHotspots(c) {
 let wikiCache = null;
 async function renderWiki(c) {
   if (!wikiCache) wikiCache = await api("/api/files?type=wiki");
-  const types = ["全部", "concept", "entity", "source", "aians", "comparison", "synthesis"];
+  const types = ["全部", "concept", "entity", "source", "comparison", "synthesis", "aians", "event"];
   c.innerHTML = `<div class="page active"><div class="split">
-    <div class="file-tree">
-      <div style="display:flex;gap:6px;flex-wrap:wrap;padding:8px;margin-bottom:4px;" id="wikiTabs"></div>
-      <div id="wikiList"></div>
+    <div class="file-tree wiki-tree">
+      <div class="wiki-search-row"><input id="wikiSearch" class="wiki-search" placeholder="🔍 筛选：标题 / 标签关键词…"></div>
+      <div id="wikiTabs"></div>
+      <div id="wikiList" class="wiki-list"></div>
     </div>
     <div class="reader-pane" id="wikiReader"><div class="empty">← 从左侧选择知识层页面<br><br>AI 编译的知识网络</div></div>
   </div></div>`;
@@ -1370,6 +1623,7 @@ async function renderWiki(c) {
   tabEl.innerHTML = types.map((t) => `<span class="wiki-tab${t === "全部" ? " active" : ""}" data-type="${t}">${t === "全部" ? "全部" : TYPE_CN[t]}</span>`).join("");
   const listEl = $("#wikiList");
   async function renderList(type) {
+    const kw = ($("#wikiSearch") ? $("#wikiSearch").value : "").trim().toLowerCase();
     const metas = [];
     for (const item of wikiCache) {
       const rel = typeof item === "string" ? item : item.rel;
@@ -1378,7 +1632,9 @@ async function renderWiki(c) {
       const base = rel.split("/").pop().replace(".md", "");
       const f = await api("/api/file?path=" + encodeURIComponent(rel));
       if (!f || f.error) continue;
+      if (f.fm.type === "essay") continue; /* 笔记不单独展示，作为原文的附属链接 */
       if (type !== "全部" && f.fm.type !== type) continue;
+      if (kw && !(f.fm.title || base).toLowerCase().includes(kw) && !(TYPE_CN[f.fm.type] || "").toLowerCase().includes(kw)) continue;
       metas.push({ rel, fm: f.fm, title: f.fm.title || base, type: f.fm.type || "page", mtime });
     }
     /* 排序：优先真实文件修改时间（mtime），缺失时回退 frontmatter updated/date */
@@ -1387,24 +1643,26 @@ async function renderWiki(c) {
       const tb = b.mtime || (b.fm.updated || b.fm.date || "").replace(/[-:T]/g, "").replace(" ", "");
       return String(tb).localeCompare(String(ta));
     });
-    listEl.innerHTML = metas.map((m) => {
+    listEl.innerHTML = metas.length ? metas.map((m) => {
       const dt = m.mtime ? new Date(m.mtime).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" }) : (m.fm.updated || m.fm.date || "").slice(5, 10);
       return `
-      <div class="list-item" data-rel="${esc(m.rel)}">
+      <div class="list-item wiki-item" data-rel="${esc(m.rel)}">
         <span class="tag ${m.type}">${TYPE_CN[m.type] || m.type}</span>
         <span class="t">${esc(m.title)}</span>
-        <span style="margin-left:auto;font-size:11px;color:var(--text3);white-space:nowrap;">${esc(dt)}</span>
+        <span class="item-date">${esc(dt)}</span>
       </div>`;
-    }).join("");
+    }).join("") : `<div style="padding:14px;text-align:center;color:var(--text3);font-size:12px;">无匹配结果</div>`;
     listEl.querySelectorAll(".list-item").forEach((el) => el.addEventListener("click", async () => {
       listEl.querySelectorAll(".list-item").forEach((x) => x.style.background = "");
-      el.style.background = "rgba(59,130,246,0.12)";
+      el.style.background = "rgba(79,163,179,0.12)";
       const rel = el.dataset.rel;
       currentRel = rel; /* 记录当前打开的文档，供 wikilink 跳转后返回正确回溯 */
       const f = await api("/api/file?path=" + encodeURIComponent(rel));
       renderReaderWithAI($("#wikiReader"), rel, f, { pane: true });
     }));
   }
+  const ws = $("#wikiSearch");
+  if (ws) ws.addEventListener("input", () => renderList($("#wikiTabs .wiki-tab.active").dataset.type || "全部"));
   tabEl.querySelectorAll(".wiki-tab").forEach((t) => t.addEventListener("click", () => {
     tabEl.querySelectorAll(".wiki-tab").forEach((x) => x.classList.remove("active"));
     t.classList.add("active");
@@ -1432,7 +1690,7 @@ async function renderBrainstorm(c) {
     <div class="card">
       <h3>💡 头脑风暴 — 读库 → 追问 → 写回</h3>
       <p style="font-size:12px;color:var(--text2);margin-bottom:12px;">输入一个真实问题，AI 检索知识层与素材库，返回相关片段；基于片段头脑风暴，新认知可写回知识库。</p>
-      <textarea class="brain-input" id="bsQ" placeholder="例：江西公共数据授权运营的价格机制是什么？与浙江有什么差异？"></textarea>
+      <textarea class="brain-input" id="bsQ" placeholder="例：某类公共数据授权运营的价格机制是什么？与其他地区有什么差异？"></textarea>
       <div style="display:flex;gap:10px;margin-top:10px;align-items:center;">
         <button class="btn" id="bsGo">🔍 检索并头脑风暴</button>
         <span style="font-size:11px;color:var(--text3);">检索范围：知识层 + 素材库（关键词匹配）</span>
@@ -1470,10 +1728,10 @@ async function renderBrainstorm(c) {
     $("#bsSave").addEventListener("click", async () => {
       const title = $("#bsTitle").value.trim();
       const content = $("#bsContent").value.trim();
-      if (!title || !content) { alert("标题与内容必填"); return; }
+      if (!title || !content) { dflash("标题与内容必填", true); return; }
       const r = await fetch(API + "/api/draft", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, content }) });
       const j = await r.json();
-      alert(j.ok ? "已写回：" + j.file : "失败：" + j.error);
+      dflash(j.ok ? "已写回：" + j.file : "失败：" + j.error, !j.ok);
       if (j.ok) { $("#bsTitle").value = ""; $("#bsContent").value = ""; }
     });
   });
@@ -1481,15 +1739,22 @@ async function renderBrainstorm(c) {
 
 /* --- AI 对话（信箱桥：提问入箱 → Agent 回答 → 取回展示）--- */
 let aiTimer = null;
+let aiAutoIngested = new Set(); /* 已自动入库的回答 id（防止轮询重复入库） */
 async function renderAIchat(c) {
   if (aiTimer) { clearInterval(aiTimer); aiTimer = null; }
   c.innerHTML = `<div class="page active">
     <div class="card" style="margin-bottom:14px;">
       <h3>🤖 AI 对话 — 读库 → 追问 → 写回</h3>
       <p style="font-size:12px;color:var(--text2);margin-bottom:10px;">提问入箱（inbox）→ Agent 读取知识库回答 → 回答写回（answers）→ 本页自动取回。Agent 处理中请稍候，页面每 10 秒自动刷新。</p>
-      <textarea class="brain-input" id="aiAskQ" placeholder="例：基于知识库，江西公共数据授权运营的价格机制是什么？与浙江有何差异？"></textarea>
-      <div style="display:flex;gap:10px;margin-top:10px;align-items:center;">
-        <button class="btn" id="aiAskGo">📮 发送给 WorkBuddy</button>
+      <textarea class="brain-input" id="aiAskQ" placeholder="例：基于知识库，某类公共数据授权运营的价格机制是什么？与其他地区有何差异？"></textarea>
+      <div style="display:flex;gap:10px;margin-top:10px;align-items:center;position:relative;z-index:50;">
+        <div style="display:flex;flex-shrink:0;">
+          <button class="btn" id="aiAskGo" style="border-radius:11px 0 0 11px;">📮 发送给 WorkBuddy</button>
+          <button class="btn ghost" id="aiAskMore" style="border-radius:0 11px 11px 0;border-left:none;padding:8px 12px;font-size:13px;" title="更多发送选项">▾</button>
+        </div>
+        <div id="aiAskMenu" style="display:none;position:absolute;top:calc(100% + 6px);left:0;min-width:260px;background:var(--bg2);border:1px solid var(--line);border-radius:11px;box-shadow:0 10px 30px rgba(0,0,0,.18);z-index:60;overflow:hidden;">
+          <div class="split-item" id="aiAskGoIngest" style="padding:10px 14px;font-size:13px;color:var(--text);cursor:pointer;border-bottom:1px solid var(--line);">📥 <b>发送并自动入库</b><span style="display:block;font-size:11px;color:var(--text3);margin-top:3px;">回答完成后自动提炼成知识层「AI回答提炼」页面（review: pending）</span></div>
+        </div>
         <span id="aiAskInfo" style="font-size:11px;color:var(--text3);"></span>
       </div>
     </div>
@@ -1507,7 +1772,10 @@ async function renderAIchat(c) {
       <div id="aiThread" style="display:flex;flex-direction:column;gap:10px;"></div>
     </div>
   </div>`;
-  $("#aiAskGo").addEventListener("click", doAsk);
+  $("#aiAskGo").addEventListener("click", () => doAsk({}));
+  $("#aiAskMore").addEventListener("click", (e) => { e.stopPropagation(); const m = $("#aiAskMenu"); m.style.display = m.style.display === "none" ? "block" : "none"; });
+  $("#aiAskGoIngest").addEventListener("click", () => { $("#aiAskMenu").style.display = "none"; doAsk({ autoIngest: true }); });
+  document.addEventListener("click", (e) => { const mm = $("#aiAskMenu"); if (mm && !mm.contains(e.target)) mm.style.display = "none"; });
   $("#aiAskQ").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) doAsk(); });
   $("#aiSelAll").addEventListener("change", () => {
     const all = $("#aiSelAll").checked;
@@ -1523,7 +1791,7 @@ async function renderAIchat(c) {
   }
   async function ingestSelected() {
     const cbs = [...document.querySelectorAll(".ai-sel-cb:checked")];
-    if (!cbs.length) { alert("请先勾选要入库的历史提问"); return; }
+    if (!cbs.length) { dflash("请先勾选要入库的历史提问", true); return; }
     const title = $("#aiIngestTitle") && $("#aiIngestTitle").value.trim() ? $("#aiIngestTitle").value.trim() : "历史提问精选-" + new Date().toISOString().slice(0, 10);
     const parts = [`# ${title}`, "", `> 入库时间：${new Date().toLocaleString("zh-CN", { hour12: false })}`, ""];
     let n = 0;
@@ -1538,18 +1806,19 @@ async function renderAIchat(c) {
       }
       parts.push(`**回答：**`, "", item.body || "", "");
     }
-    if (!n) { alert("所选条目缺少问题信息"); return; }
+    if (!n) { dflash("所选条目缺少问题信息", true); return; }
     const r = await fetch(API + "/api/draft", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, content: parts.join("\n") }) });
     const j = await r.json();
-    alert(j.ok ? `✅ 已入库 ${n} 条：${j.file}` : "入库失败：" + j.error);
+    dflash(j.ok ? `✅ 已入库 ${n} 条：${j.file}` : "入库失败：" + j.error, !j.ok);
   }
-  async function doAsk() {
+  async function doAsk(opts = {}) {
     const q = $("#aiAskQ").value.trim();
     if (!q) return;
+    const autoIngest = !!opts.autoIngest;
     const btn = $("#aiAskGo");
     btn.disabled = true;
     try {
-      const r = await fetch(API + "/api/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question: q }) });
+      const r = await fetch(API + "/api/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question: q, autoIngest }) });
       const j = await r.json();
       if (j.ok) {
         /* 立即唤醒 WorkBuddy 取件 */
@@ -1559,7 +1828,7 @@ async function renderAIchat(c) {
           const wj = await w.json();
           wakeNote = wj.ok ? "" : `（唤醒失败：${esc(wj.error || "")}，将按每小时兜底）`;
         } catch (e) { wakeNote = "（唤醒失败，将按每小时兜底）"; }
-        $("#aiAskInfo").textContent = "已发送给 WorkBuddy，处理中…（约 1 分钟内回）" + wakeNote;
+        $("#aiAskInfo").textContent = (autoIngest ? "📥 已发送并标记自动入库，" : "已发送给 WorkBuddy，") + "处理中…（约 1 分钟内回）" + wakeNote;
         $("#aiAskQ").value = "";
         await refreshAIthread();
       } else {
@@ -1573,6 +1842,17 @@ async function renderAIchat(c) {
 async function refreshAIthread() {
   const pending = await api("/api/inbox");
   const answers = await api("/api/answers");
+  /* 自动入库：带 autoIngest 标记的提问，回答完成后自动提炼成知识层「AI回答提炼」页面 */
+  for (const a of answers) {
+    if (!a.inbox || !/^autoIngest:\s*true/m.test(a.inbox)) continue;
+    if (aiAutoIngested.has(a.id)) continue;
+    aiAutoIngested.add(a.id);
+    try {
+      const r = await fetch(API + "/api/answers/ingest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rel: a.rel }) });
+      const j = await r.json();
+      if (j.ok) dflash(`📥 已自动入库：${j.file.split("/").pop()}`);
+    } catch (e) {}
+  }
   const pEl = $("#aiPending");
   const plEl = $("#aiPendingList");
   if (pending.length) {
@@ -1595,7 +1875,7 @@ async function refreshAIthread() {
       <div style="display:flex;gap:10px;align-items:flex-start;">
         <input type="checkbox" class="ai-sel-cb" data-id="${esc(a.id)}" data-ans='${esc(JSON.stringify({ question: a.question, body: a.body, answeredAt: a.answeredAt, inbox: a.inbox || "" }))}' ${prevChecked.has(a.id) ? "checked" : ""} style="margin-top:3px;flex-shrink:0;" onchange="document.querySelector('#aiSelAll').checked = document.querySelectorAll('.ai-sel-cb:checked').length === document.querySelectorAll('.ai-sel-cb').length; document.querySelector('#aiSelCount').textContent = '已选 ' + document.querySelectorAll('.ai-sel-cb:checked').length + ' 条';">
         <div style="flex:1;min-width:0;">
-          <div style="font-size:13px;font-weight:500;color:var(--acc2);margin-bottom:2px;">❓ ${esc(a.question || a.name)} ${a.hasContext ? '<span style="font-size:10px;background:rgba(111,76,255,.10);color:var(--acc2);padding:1px 7px;border-radius:999px;margin-left:4px;">带原文引用</span>' : ""}</div>
+          <div style="font-size:13px;font-weight:500;color:var(--acc2);margin-bottom:2px;">❓ ${esc(a.question || a.name)} ${a.hasContext ? '<span style="font-size:10px;background:rgba(79,163,179,.10);color:var(--acc2);padding:1px 7px;border-radius:999px;margin-left:4px;">带原文引用</span>' : ""}</div>
           <div style="font-size:11px;color:var(--text3);margin-bottom:8px;">${esc(a.answeredAt || "")} · <a class="open-answer" data-rel="${esc(a.rel)}" style="cursor:pointer;">打开全文 ↗</a></div>
           <div class="reader" style="font-size:12.5px;max-height:140px;overflow:hidden;position:relative;">${mdToHtml(a.body || "")}</div>
         </div>
@@ -1609,10 +1889,10 @@ async function refreshAIthread() {
   }
 }
 
-/* --- __USER_NAME__的日常（拆分为 待办 / 记账 两个独立页）--- */
+/* --- 用户的日常（拆分为 待办 / 记账 两个独立页）--- */
 let dailyDate = fmtDate(new Date());
 let dailyMonth = dailyDate.slice(0, 7);
-let dailyState = { todos: [], works: [], entries: [], done: [], allTodos: [] };
+let dailyState = { todos: [], works: [], entries: [], done: [], allTodos: [], report: null };
 let meetingList = [];
 let catData = { expense: [], income: [] };
 /* 待办 / 记账 两页各自独立的日历上下文（选中日期 · 月份 · 当天数据），切页互不干扰 */
@@ -1628,7 +1908,7 @@ function swapCalContext(scope) {
   if (activeScope !== scope) {
     const ctx = calCtx[scope] || calCtx.todo;
     dailyDate = ctx.date; dailyMonth = ctx.month || ctx.date.slice(0, 7);
-    dailyState = ctx.state || { todos: [], works: [], entries: [], done: [], allTodos: [], allDone: [] };
+    dailyState = ctx.state || { todos: [], works: [], entries: [], done: [], allTodos: [], allDone: [], report: null };
     activeScope = scope;
   }
 }
@@ -1658,7 +1938,7 @@ function dateNavHTML() {
 }
 async function loadDailyBase() {
   const d = await api("/api/daily?date=" + dailyDate);
-  dailyState = { todos: d.todos || [], works: d.works || [], entries: d.entries || [], done: d.done || [], allTodos: d.allTodos || [], allDone: d.allDone || [] };
+  dailyState = { todos: d.todos || [], works: d.works || [], entries: d.entries || [], done: d.done || [], allTodos: d.allTodos || [], allDone: d.allDone || [], report: d.report || null };
   const list = await api("/api/daily/list");
   const mp = $("#dMonthPrev"), mn = $("#dMonthNext"), mt = $("#dToday");
   if (mp) mp.addEventListener("click", async () => { dailyMonth = shiftMonth(dailyMonth, -1); renderDailyCalendar(await api("/api/daily/list")); });
@@ -1763,134 +2043,6 @@ function dflash(msg, isErr) {
   }
 }
 /* --- 待办页 --- */
-async function renderTodoPage(c) {
-  swapCalContext("todo");
-  if (!meetingList.length) { try { meetingList = await api("/api/meetings"); } catch {} }
-  c.innerHTML = `<div class="page active">${dateNavHTML()}
-    <div class="card daily-work-card">
-      <h3>🛠 每日工作</h3>
-      <p style="font-size:12px;color:var(--text2);margin-bottom:10px;">按时间记录今天做了什么 · 每晚 20:00 自动生成日报 · 每周六 20:00 自动生成周报</p>
-      <div style="display:flex;gap:8px;margin-bottom:12px;">
-        <input class="brain-input" id="dWorkTime" placeholder="时间（可选，如 09:30）" style="min-height:0;padding:9px 12px;font-size:13px;width:110px;flex:0 0 auto;">
-        <input class="brain-input" id="dWorkInput" placeholder="做了什么…（回车即存）" style="min-height:0;padding:9px 12px;font-size:13px;flex:1;">
-        <button class="btn" id="dWorkAdd" style="padding:9px 14px;white-space:nowrap;">➕ 记录</button>
-      </div>
-      <div id="dWorkList"></div>
-    </div>
-    <div class="card" style="margin-top:14px;">
-      <h3>📋 待办事项</h3>
-      <p style="font-size:12px;color:var(--text2);margin-bottom:12px;">按日一页 · 智能排期（时间词自动归档）· 依赖链：<span class="dep-badge dep-wait" style="cursor:default;">⏳ 等待前置</span> 与 <span class="dep-down" style="cursor:default;">🔗 下游依赖</span>（悬浮查看）· 勾选完成 → 可「办结归档」</p>
-      <div style="display:flex;gap:8px;margin:10px 0 14px;">
-        <input class="brain-input" id="dTodoInput" placeholder="添加待办…（回车即存；带时间词自动排期）" style="min-height:0;padding:9px 12px;font-size:13px;">
-        <button class="btn" id="dTodoAdd" style="padding:9px 14px;white-space:nowrap;">➕ 添加</button>
-      </div>
-      <div id="dTodoList"></div>
-    </div>
-    <div class="card" style="margin-top:14px;">
-      <h3>✅ 已办结事项</h3>
-      <p style="font-size:12px;color:var(--text2);margin-bottom:10px;">与待办对应 · 涉及会议的挂会议纪要（📄 点击阅读）</p>
-      <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;margin-bottom:12px;align-items:center;">
-        <input class="brain-input" id="dDoneInput" placeholder="办结事项…（如：金融团队业务周会）" style="min-height:0;padding:9px 12px;font-size:13px;">
-        <select id="dDoneMeeting" style="background:var(--bg2);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:8px;font-size:12px;">
-          <option value="">📄 关联会议纪要（可选）</option>
-          ${meetingList.map((m) => `<option value="${esc(m.rel)}">${esc(m.name)}</option>`).join("")}
-        </select>
-        <button class="btn" id="dDoneAdd" style="padding:9px 14px;white-space:nowrap;">🎉 办结</button>
-      </div>
-      <div id="dDoneList"></div>
-    </div>
-  </div>`;
-  await loadDailyBase();
-  $("#dWorkAdd").addEventListener("click", addWork);
-  $("#dWorkInput").addEventListener("keydown", (e) => { if (e.key === "Enter") addWork(); });
-  $("#dTodoAdd").addEventListener("click", addTodo);
-  $("#dTodoInput").addEventListener("keydown", (e) => { if (e.key === "Enter") addTodo(); });
-  $("#dDoneAdd").addEventListener("click", addDone);
-  $("#dDoneInput").addEventListener("keydown", (e) => { if (e.key === "Enter") addDone(); });
-  renderWorkList();
-  renderTodoList();
-  renderDoneList();
-  async function addWork() {
-    const v = $("#dWorkInput").value.trim();
-    if (!v) return;
-    const time = $("#dWorkTime").value.trim();
-    dailyState.works.push({ time, text: v });
-    const ok = await saveDaily();
-    if (ok) { $("#dWorkInput").value = ""; $("#dWorkTime").value = ""; renderWorkList(); }
-    else { dailyState.works.pop(); renderWorkList(); }
-  }
-  function renderWorkList() {
-    const box = $("#dWorkList");
-    if (!box) return;
-    box.innerHTML = dailyState.works.length ? dailyState.works.map((w, i) => `
-      <div style="display:flex;align-items:flex-start;gap:10px;padding:9px 10px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px;font-size:13.5px;background:rgba(111,76,255,0.045);">
-        <span style="font-size:13px;font-weight:700;color:var(--acc);white-space:nowrap;min-width:52px;flex-shrink:0;">${w.time ? esc(w.time) : "—"}</span>
-        <span style="flex:1;min-width:0;word-break:break-word;">${esc(w.text)}</span>
-        <button class="btn ghost d-work-edit" data-i="${i}" title="编辑时间/内容" style="flex-shrink:0;padding:3px 8px;font-size:11px;color:var(--acc);">✏️</button>
-        <button class="btn ghost d-work-del" data-i="${i}" style="flex-shrink:0;padding:3px 8px;font-size:11px;color:var(--red);">✕</button>
-      </div>`).join("") : `<div style="color:var(--text3);font-size:13px;padding:14px 0;text-align:center;">今天还没有工作记录，记录一下做了什么吧 ✍️</div>`;
-    box.querySelectorAll(".d-work-del").forEach((el) => el.addEventListener("click", () => { dailyState.works.splice(Number(el.dataset.i), 1); saveDaily(); renderWorkList(); }));
-    box.querySelectorAll(".d-work-edit").forEach((el) => el.addEventListener("click", async () => {
-      const w = dailyState.works[Number(el.dataset.i)];
-      if (!w) return;
-      const sel = await dPrompt("✏️ 编辑工作记录", [
-        { id: "time", label: "时间（可选，如 14:30）", value: w.time || "" },
-        { id: "text", label: "工作内容", value: w.text }
-      ]);
-      if (!sel) return;
-      const nt = (sel.time || "").trim();
-      const nx = (sel.text || "").trim();
-      if (!nx) { dflash("内容不能为空，未保存"); return; }
-      w.time = nt; w.text = nx;
-      saveDaily(); renderWorkList();
-    }));
-  }
-  async function addTodo() {
-    const v = $("#dTodoInput").value.trim();
-    if (!v) return;
-    const today = fmtDate(new Date());
-    const target = dailyDate === today ? parseTodoDate(v) : null;
-    if (target && target !== today) {
-      const td = await api("/api/daily?date=" + target);
-      const tlist = td.todos || [];
-      tlist.push({ done: false, text: v });
-      try {
-        const r = await fetch(API + "/api/daily", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: target, todos: tlist, works: td.works || [], entries: td.entries || [], done: td.done || [] }) });
-        const j = await r.json();
-        if (!j.ok) throw new Error(j.error || "保存失败");
-        $("#dTodoInput").value = "";
-        dflash("⏰ 已排到 " + target + "（" + weekdayCN(target) + "）的待办");
-      } catch (e) {
-        dflash("⚠️ 排期保存失败：" + e.message, true);
-      }
-      return;
-    }
-    dailyState.todos.push({ done: false, text: v });
-    const ok = await saveDaily();
-    if (ok) { $("#dTodoInput").value = ""; renderTodoList(); }
-    else { dailyState.todos.pop(); renderTodoList(); }
-  }
-  async function addDone() {
-    const v = $("#dDoneInput").value.trim();
-    if (!v) return;
-    dailyState.done.push({ date: dailyDate, text: v, meeting: $("#dDoneMeeting").value || undefined });
-    const ok = await saveDaily();
-    if (ok) { $("#dDoneInput").value = ""; $("#dDoneMeeting").value = ""; renderDoneList(); }
-    else { dailyState.done.pop(); renderDoneList(); }
-  }
-  async function saveDaily() {
-    try {
-      const r = await fetch(API + "/api/daily", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: dailyDate, todos: dailyState.todos, works: dailyState.works, entries: dailyState.entries, done: dailyState.done }) });
-      const j = await r.json();
-      if (!j.ok) throw new Error(j.error || "保存失败");
-      dflash("已保存 · " + dailyDate);
-      return true;
-    } catch (e) {
-      dflash("⚠️ 保存失败：" + e.message, true);
-      console.error("saveDaily error:", e);
-      return false;
-    }
-  }
   /* 通用输入弹层：替代 window.prompt（Electron 渲染进程不支持 prompt，调用即抛错）
    * fields: [{ id, label, value, type: "text"|"select"|"searchselect", placeholder, options, initial, search }]
    *   select 用 options；searchselect = 搜索框 + 结果列表，search(kw) → [{v,l}...]，initial 为预置项
@@ -1960,6 +2112,174 @@ async function renderTodoPage(c) {
       const first = mask.querySelector("input, select");
       if (first) setTimeout(() => first.focus(), 60);
     });
+  }
+  /* 简单确认弹层：返回 Promise<boolean>（Electron 不支持 window.confirm，自建） */
+  function dConfirm(title, msg) {
+    return new Promise((resolve) => {
+      const mask = document.createElement("div");
+      mask.className = "te-mask";
+      mask.innerHTML = `
+        <div class="te-box" style="max-width:380px;">
+          <h3>${esc(title)}</h3>
+          ${msg ? `<div style="font-size:13px;color:var(--text2);margin-bottom:6px;word-break:break-word;">${esc(msg)}</div>` : ""}
+          <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px;">
+            <button class="btn ghost" id="dcCancel">取消</button>
+            <button class="btn" id="dcOk" style="background:var(--amber);border-color:var(--amber);color:#fff;">✔ 确认</button>
+          </div>
+        </div>`;
+      document.body.appendChild(mask);
+      const close = (v) => { mask.remove(); resolve(v); };
+      $("#dcCancel").addEventListener("click", () => close(false));
+      $("#dcOk").addEventListener("click", () => close(true));
+      mask.addEventListener("click", (e) => { if (e.target === mask) close(false); });
+      $("#dcOk").focus();
+    });
+  }
+async function renderTodoPage(c) {
+  swapCalContext("todo");
+  if (!meetingList.length) { try { meetingList = await api("/api/meetings"); } catch {} }
+  c.innerHTML = `<div class="page active">${dateNavHTML()}
+    <div class="card daily-work-card">
+      <h3>🛠 每日工作</h3>
+      <p style="font-size:12px;color:var(--text2);margin-bottom:10px;">按时间记录今天做了什么 · 每晚 20:00 自动生成日报 · 每周六 20:00 自动生成周报</p>
+      <div id="dReportBox"></div>
+      <div style="display:flex;gap:8px;margin-bottom:12px;">
+        <input class="brain-input" id="dWorkTime" placeholder="时间（可选，如 09:30）" style="min-height:0;padding:9px 12px;font-size:13px;width:110px;flex:0 0 auto;">
+        <input class="brain-input" id="dWorkInput" placeholder="做了什么…（回车即存）" style="min-height:0;padding:9px 12px;font-size:13px;flex:1;">
+        <button class="btn" id="dWorkAdd" style="padding:9px 14px;white-space:nowrap;">➕ 记录</button>
+      </div>
+      <div id="dWorkList"></div>
+    </div>
+    <div class="card" style="margin-top:14px;">
+      <h3>📋 待办事项</h3>
+      <p style="font-size:12px;color:var(--text2);margin-bottom:12px;">按日一页 · 智能排期（时间词自动归档）· 依赖链：<span class="dep-badge dep-wait" style="cursor:default;">⏳ 等待前置</span> 与 <span class="dep-down" style="cursor:default;">🔗 下游依赖</span>（悬浮查看）· 勾选完成 → 可「办结归档」</p>
+      <div style="display:flex;gap:8px;margin:10px 0 14px;">
+        <input class="brain-input" id="dTodoInput" placeholder="添加待办…（回车即存；带时间词自动排期）" style="min-height:0;padding:9px 12px;font-size:13px;">
+        <button class="btn" id="dTodoAdd" style="padding:9px 14px;white-space:nowrap;">➕ 添加</button>
+      </div>
+      <div id="dTodoList"></div>
+    </div>
+    <div class="card" style="margin-top:14px;">
+      <h3>✅ 已办结事项</h3>
+      <p style="font-size:12px;color:var(--text2);margin-bottom:10px;">与待办对应 · 涉及会议的挂会议纪要（📄 点击阅读）</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;margin-bottom:12px;align-items:center;">
+        <input class="brain-input" id="dDoneInput" placeholder="办结事项…（如：金融团队业务周会）" style="min-height:0;padding:9px 12px;font-size:13px;">
+        <select id="dDoneMeeting" style="background:var(--bg2);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:8px;font-size:12px;">
+          <option value="">📄 关联会议纪要（可选）</option>
+          ${meetingList.map((m) => `<option value="${esc(m.rel)}">${esc(m.name)}</option>`).join("")}
+        </select>
+        <button class="btn" id="dDoneAdd" style="padding:9px 14px;white-space:nowrap;">🎉 办结</button>
+      </div>
+      <div id="dDoneList"></div>
+    </div>
+  </div>`;
+  await loadDailyBase();
+  renderReportBox();
+  $("#dWorkAdd").addEventListener("click", addWork);
+  $("#dWorkInput").addEventListener("keydown", (e) => { if (e.key === "Enter") addWork(); });
+  $("#dTodoAdd").addEventListener("click", addTodo);
+  $("#dTodoInput").addEventListener("keydown", (e) => { if (e.key === "Enter") addTodo(); });
+  $("#dDoneAdd").addEventListener("click", addDone);
+  $("#dDoneInput").addEventListener("keydown", (e) => { if (e.key === "Enter") addDone(); });
+  renderWorkList();
+  renderTodoList();
+  renderDoneList();
+  async function addWork() {
+    const v = $("#dWorkInput").value.trim();
+    if (!v) return;
+    const time = $("#dWorkTime").value.trim();
+    dailyState.works.push({ time, text: v });
+    const ok = await saveDaily();
+    if (ok) { $("#dWorkInput").value = ""; $("#dWorkTime").value = ""; renderWorkList(); }
+    else { dailyState.works.pop(); renderWorkList(); }
+  }
+  /* 日报关联：选中日期有对应日报则显示入口，点击打开阅读器 */
+  function renderReportBox() {
+    const box = $("#dReportBox");
+    if (!box) return;
+    const rp = dailyState.report;
+    if (!rp) { box.innerHTML = ""; return; }
+    const label = rp.isExact
+      ? `📄 已生成《${rp.date} 工作日报》`
+      : `📄 关联最近一期《${rp.date} 工作日报》`;
+    box.innerHTML = `<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1px dashed var(--acc);border-radius:10px;background:rgba(79,163,179,0.06);margin-bottom:12px;cursor:pointer;" class="d-report-link" data-rel="${esc(rp.rel)}">
+      <span style="font-size:16px;">📄</span>
+      <span style="flex:1;font-size:13px;color:var(--acc2);font-weight:600;">${label}</span>
+      <span style="font-size:11px;color:var(--text3);">点击阅读 →</span>
+    </div>`;
+    box.querySelector(".d-report-link").addEventListener("click", () => openFile(box.querySelector(".d-report-link").dataset.rel));
+  }
+  function renderWorkList() {
+    const box = $("#dWorkList");
+    if (!box) return;
+    box.innerHTML = dailyState.works.length ? dailyState.works.map((w, i) => `
+      <div style="display:flex;align-items:flex-start;gap:10px;padding:9px 10px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px;font-size:13.5px;background:rgba(79,163,179,0.045);">
+        <span style="font-size:13px;font-weight:700;color:var(--acc);white-space:nowrap;min-width:52px;flex-shrink:0;">${w.time ? esc(w.time) : "—"}</span>
+        <span style="flex:1;min-width:0;word-break:break-word;">${esc(w.text)}</span>
+        <button class="btn ghost d-work-edit" data-i="${i}" title="编辑时间/内容" style="flex-shrink:0;padding:3px 8px;font-size:11px;color:var(--acc);">✏️</button>
+        <button class="btn ghost d-work-del" data-i="${i}" style="flex-shrink:0;padding:3px 8px;font-size:11px;color:var(--red);">✕</button>
+      </div>`).join("") : `<div style="color:var(--text3);font-size:13px;padding:14px 0;text-align:center;">今天还没有工作记录，记录一下做了什么吧 ✍️</div>`;
+    box.querySelectorAll(".d-work-del").forEach((el) => el.addEventListener("click", () => { dailyState.works.splice(Number(el.dataset.i), 1); saveDaily(); renderWorkList(); }));
+    box.querySelectorAll(".d-work-edit").forEach((el) => el.addEventListener("click", async () => {
+      const w = dailyState.works[Number(el.dataset.i)];
+      if (!w) return;
+      const sel = await dPrompt("✏️ 编辑工作记录", [
+        { id: "time", label: "时间（可选，如 14:30）", value: w.time || "" },
+        { id: "text", label: "工作内容", value: w.text }
+      ]);
+      if (!sel) return;
+      const nt = (sel.time || "").trim();
+      const nx = (sel.text || "").trim();
+      if (!nx) { dflash("内容不能为空，未保存"); return; }
+      w.time = nt; w.text = nx;
+      saveDaily(); renderWorkList();
+    }));
+  }
+  async function addTodo() {
+    const v = $("#dTodoInput").value.trim();
+    if (!v) return;
+    const today = fmtDate(new Date());
+    const target = dailyDate === today ? parseTodoDate(v) : null;
+    if (target && target !== today) {
+      const td = await api("/api/daily?date=" + target);
+      const tlist = td.todos || [];
+      tlist.push({ done: false, text: v });
+      try {
+        const r = await fetch(API + "/api/daily", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: target, todos: tlist, works: td.works || [], entries: td.entries || [], done: td.done || [] }) });
+        const j = await r.json();
+        if (!j.ok) throw new Error(j.error || "保存失败");
+        $("#dTodoInput").value = "";
+        dflash("⏰ 已排到 " + target + "（" + weekdayCN(target) + "）的待办");
+      } catch (e) {
+        dflash("⚠️ 排期保存失败：" + e.message, true);
+      }
+      return;
+    }
+    dailyState.todos.push({ done: false, text: v });
+    const ok = await saveDaily();
+    if (ok) { $("#dTodoInput").value = ""; renderTodoList(); }
+    else { dailyState.todos.pop(); renderTodoList(); }
+  }
+  async function addDone() {
+    const v = $("#dDoneInput").value.trim();
+    if (!v) return;
+    dailyState.done.push({ date: dailyDate, text: v, meeting: $("#dDoneMeeting").value || undefined });
+    const ok = await saveDaily();
+    if (ok) { $("#dDoneInput").value = ""; $("#dDoneMeeting").value = ""; renderDoneList(); }
+    else { dailyState.done.pop(); renderDoneList(); }
+  }
+  async function saveDaily() {
+    try {
+      const r = await fetch(API + "/api/daily", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: dailyDate, todos: dailyState.todos, works: dailyState.works, entries: dailyState.entries, done: dailyState.done }) });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.error || "保存失败");
+      dflash("已保存 · " + dailyDate);
+      return true;
+    } catch (e) {
+      dflash("⚠️ 保存失败：" + e.message, true);
+      console.error("saveDaily error:", e);
+      return false;
+    }
   }
   function renderTodoList() {
     const box = $("#dTodoList");
@@ -2119,7 +2439,7 @@ async function renderTodoPage(c) {
     const period = $("#tePeriod").value.trim();
     const content = $("#teContent").value.trim();
     const dep = $("#teDep").value.trim();
-    if (!content) { alert("内容不能为空"); return; }
+    if (!content) { dflash("内容不能为空", true); return; }
     let text = (period ? period + "：" : "") + content;
     if (dep) text += "（依赖：" + dep + "）";
     mask.remove();
@@ -2638,7 +2958,7 @@ async function renderBookshelf(c) {
   c.querySelector("#bsUpload").addEventListener("change", async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    if (!/\.(pdf|txt)$/i.test(file.name)) { alert("只支持 PDF / TXT 文件"); return; }
+    if (!/\.(pdf|txt)$/i.test(file.name)) { dflash("只支持 PDF / TXT 文件", true); return; }
     const btn = c.querySelector(".btn");
     btn.textContent = "上传中…"; btn.disabled = true;
     try {
@@ -2652,10 +2972,10 @@ async function renderBookshelf(c) {
         renderBooks(activeFilter);
         c.querySelector(".bookshelf-head span:first-child").textContent = books.length + " 本书";
       } else {
-        alert("上传失败：" + j.error);
+        dflash("上传失败：" + j.error, true);
       }
     } catch (e) {
-      alert("上传失败：" + e.message);
+      dflash("上传失败：" + e.message, true);
     }
     btn.textContent = "📥 导入 PDF/TXT"; btn.disabled = false;
     e.target.value = "";
@@ -2884,7 +3204,7 @@ async function openBookReader(id, books) {
   c.querySelector("#bsMarkPage").addEventListener("click", () => {
     const pg = parseInt(pageInput.value) || 1;
     goTo(pg);
-    alert("已标记第 " + pg + " 页");
+    dflash("已标记第 " + pg + " 页");
   });
   const setViewMode = (m) => {
     viewMode = m;
@@ -3010,6 +3330,9 @@ document.querySelectorAll(".nav-item").forEach((n) => {
 });
 (async function init() {
   initSidebar();
+  initTheme();
+  /* 刷新按钮：整页重载，同步 Obsidian 的最新修改（列表/文章/搜索索引全刷新） */
+  $("#refreshBtn").addEventListener("click", () => location.reload());
   try {
     // 并行加载：stats（仪表盘数据）+ search-index（搜索预热）
     const s = await api("/api/stats");

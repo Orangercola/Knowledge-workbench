@@ -1,11 +1,13 @@
 /* ============================================================
-   __USER_NAME__的专属工作台 · 动效增强层 fx.js
+   AI 知识工作台 · 动效增强层 fx.js
    ─────────────────────────────────────────────
    纯视觉增强，不修改任何功能逻辑：
    - 统计数字滚动动画（.stat .num）
    - 环形进度动画（.ring-wrap circle）
    - 条形图展开动画（.mb-fill）
    - 页面内容渐次入场（.card / .stat stagger）
+   - 指针聚光变量（环境光 + 卡片边框）
+   - 按钮点击波纹（反馈点击状态）
    通过 MutationObserver 自动适配动态渲染的页面，
    尊重 prefers-reduced-motion。
    ============================================================ */
@@ -14,6 +16,43 @@
   if (reduced) return; // 用户偏好减少动效：直接退出
 
   const easeOut = (t) => 1 - Math.pow(1 - t, 3);
+
+  // ---- 环境聚光与卡片局部坐标 ----
+  let pointerRaf = 0;
+  window.addEventListener("pointermove", (e) => {
+    if (pointerRaf) return;
+    pointerRaf = requestAnimationFrame(() => {
+      pointerRaf = 0;
+      const x = ((e.clientX / window.innerWidth) * 100).toFixed(2) + "%";
+      const y = ((e.clientY / window.innerHeight) * 100).toFixed(2) + "%";
+      document.documentElement.style.setProperty("--fx-x", x);
+      document.documentElement.style.setProperty("--fx-y", y);
+    });
+  }, { passive: true });
+
+  function bindSpotlight(el) {
+    if (el.dataset.fxSpot === "1") return;
+    el.dataset.fxSpot = "1";
+    el.addEventListener("pointermove", (e) => {
+      const r = el.getBoundingClientRect();
+      el.style.setProperty("--mx", (((e.clientX - r.left) / r.width) * 100).toFixed(2) + "%");
+      el.style.setProperty("--my", (((e.clientY - r.top) / r.height) * 100).toFixed(2) + "%");
+    }, { passive: true });
+  }
+
+  function bindRipple(el) {
+    if (el.dataset.fxRipple === "1") return;
+    el.dataset.fxRipple = "1";
+    el.addEventListener("pointerdown", (e) => {
+      const r = el.getBoundingClientRect();
+      const wave = document.createElement("span");
+      wave.className = "fx-ripple";
+      wave.style.left = `${e.clientX - r.left}px`;
+      wave.style.top = `${e.clientY - r.top}px`;
+      el.appendChild(wave);
+      setTimeout(() => wave.remove(), 520);
+    });
+  }
 
   // ---- 数字滚动 ----
   function animateNum(el) {
@@ -99,6 +138,8 @@
   function enhance(scope) {
     scope.querySelectorAll(".stat .num").forEach(animateNum);
     scope.querySelectorAll(".ring-wrap").forEach(animateRing);
+    scope.querySelectorAll(".card, .stat, .file-tree, .reader-pane, .ai-panel, .graph-wrap").forEach(bindSpotlight);
+    scope.querySelectorAll(".btn, .theme-toggle, .refresh-btn, .side-collapse, .side-expand").forEach(bindRipple);
     animateBars(scope);
     staggerCards(scope);
   }

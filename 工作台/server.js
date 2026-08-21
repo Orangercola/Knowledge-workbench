@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 数据要素知识工作台 — 本地服务（零依赖）
+ * AI 知识工作台 — 本地服务（零依赖）
  * 静态文件 + 知识库 API。启动：node server.js [port]
  */
 "use strict";
@@ -11,10 +11,10 @@ const os = require("os");
 const { URL } = require("url");
 
 /* 知识库根目录：优先环境变量 WB_KB_ROOT（App 打包用），其次端口参数旁默认值 */
-const KB_ROOT = process.env.WB_KB_ROOT || "__KB_ROOT__";
+const KB_ROOT = process.env.WB_KB_ROOT || path.join(os.homedir(), "Documents", "MyKnowledgeBase");
 const APP_DIR = __dirname;
 const PORT = Number(process.argv[2] || process.env.PORT || 5173);
-const AI_SERVICE_AUTOMATION_ID = "automation-1786021150970"; // 「🤖 工作台 AI 对话服务」
+const AI_SERVICE_AUTOMATION_ID = process.env.WB_AI_SERVICE_AUTOMATION_ID || ""; // 可选：用于立即唤醒 AI 对话自动化
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -176,7 +176,7 @@ const CACHE_TTL = 5 * 60 * 1000; // 5 分钟，重启即失效
 /* ---------- API Handlers ---------- */
 function apiStats() {
   const wiki = path.join(KB_ROOT, "知识层");
-  const counts = { source: 0, concept: 0, entity: 0, comparison: 0, synthesis: 0, template: 0, topic: 0 };
+  const counts = { source: 0, concept: 0, entity: 0, comparison: 0, synthesis: 0, essay: 0, template: 0, topic: 0 };
   const byDir = {};
   (function scan(dir) {
     let entries;
@@ -196,6 +196,7 @@ function apiStats() {
         else if (parent === "素材摘要") counts.source++;
         else if (parent === "对比") counts.comparison++;
         else if (parent === "综述") counts.synthesis++;
+        else if (parent === "随笔") counts.essay++;
         else if (parent === "_模板") counts.template++;
         else if (parent === "主题") counts.topic++;
       }
@@ -221,17 +222,18 @@ function apiStats() {
   groups.push({ k: "其他", count: Math.max(0, total - groups.reduce((a, b) => a + b.count, 0)) });
   /* 待审卡片列表：摄入产物目录（素材摘要/概念/实体/对比/综述）中 frontmatter 含 review: pending 的页面 */
   const pendingReviewList = [];
-  for (const d of ["素材摘要", "AI回答提炼", "概念", "实体", "对比", "综述"]) {
+  for (const d of ["素材摘要", "AI回答提炼", "概念", "实体", "对比", "综述", "活动"]) {
     const dir = path.join(wiki, d);
     let files;
     try { files = fs.readdirSync(dir); } catch { continue; }
     for (const f of files) {
-      if (!f.endsWith(".md") || f.startsWith("_")) continue;
+      if (!f.endsWith(".md") || f.startsWith("_") || f.toLowerCase() === "readme.md") continue;
       try {
         const head = fs.readFileSync(path.join(dir, f), "utf-8").slice(0, 400);
-        if (/review:\s*pending/.test(head)) {
+        /* 锚定行首，只匹配 frontmatter 里的 review 字段，避免正文里出现 "review: pending" 字面被误判 */
+        if (/^review:\s*pending/m.test(head)) {
           const title = (head.match(/^title:\s*(.+)$/m) || [])[1] || f.replace(/\.md$/, "");
-          pendingReviewList.push({ rel: "知识层/" + d + "/" + f, title: title.trim().replace(/^["']|["']$/g, "") });
+          pendingReviewList.push({ rel: "知识层/" + d + "/" + f, title: title.trim().replace(/^["']|["']$/g, ""), reingest: /^reingest:\s*(\S+)/m.test(head) ? (head.match(/^reingest:\s*(\S+)/m) || [])[1] : undefined });
         }
       } catch {}
     }
@@ -278,12 +280,48 @@ function apiFiles(type) {
 }
 
 function apiFile(rel) {
-  const p = safeJoin(KB_ROOT, rel);
+  let p = safeJoin(KB_ROOT, rel);
+  /* 引号容错：source 里半角引号与真实文件名全角引号错位的历史脏数据 → 归一化重试 */
+  if (p && !fs.existsSync(p)) {
+    let out = "", open = true;
+    for (const ch of rel) {
+      if (ch === '"') { out += open ? "\u201c" : "\u201d"; open = !open; }
+      else out += ch;
+    }
+    if (out !== rel) {
+      const p2 = safeJoin(KB_ROOT, out);
+      if (p2 && fs.existsSync(p2)) p = p2;
+    }
+  }
   if (!p || !fs.existsSync(p) || !p.endsWith(".md")) return null;
   const text = fs.readFileSync(p, "utf-8");
   const { fm, body } = parseFrontmatter(text);
   const links = collectWikiLinks(body);
   return { rel, fm, body, links, size: text.length };
+}
+
+/* 保存文档正文（保留 frontmatter）：POST /api/file { rel, body }
+   工作台「✏️ 编辑」写回，与 Obsidian 双向修改。 */
+function apiFileSave(req, cb) {
+  let body = "";
+  req.on("data", (c) => { body += c; if (body.length > 8e6) req.destroy(); });
+  req.on("end", () => {
+    try {
+      const j = JSON.parse(body || "{}");
+      const rel = (j.rel || "").trim();
+      const newBody = typeof j.body === "string" ? j.body : "";
+      if (!rel) return cb({ ok: false, error: "缺少 rel" });
+      const p = safeJoin(KB_ROOT, rel);
+      if (!p || !fs.existsSync(p) || !p.endsWith(".md")) return cb({ ok: false, error: "文件不存在：" + rel });
+      const text = fs.readFileSync(p, "utf-8");
+      /* 保留原 frontmatter，只替换正文（frontmatter 由审核/AI 流程维护）；\r? 兼容 Windows 换行 */
+      const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
+      const fmPart = m ? m[0] : "";
+      const clean = newBody.replace(/^\r?\n+/, "").replace(/\s+$/, "");
+      writeFileRetry(p, fmPart + clean + "\n", { retries: 10, delayMs: 600 });
+      cb({ ok: true, rel });
+    } catch (e) { cb({ ok: false, error: e.message }); }
+  });
 }
 
 function apiSearch(q, scope) {
@@ -340,7 +378,7 @@ function apiSearchIndex() {
     const { fm, body } = parseFrontmatter(text);
     const title = fm.title || path.basename(rel, ".md");
     const tags = Array.isArray(fm.tags) ? fm.tags.join(" ") : (fm.tags || "");
-    const content = body.replace(/[#*`>\-\[\]()!|]/g, " ").replace(/\s+/g, " ").trim().slice(0, 2000);
+    const content = body.replace(/[#*`>\-\[\]()!|]/g, " ").replace(/\s+/g, " ").trim().slice(0, 500);
     docs.push({ id: rel, title, content, tags, type: fm.type || "page", rel });
   }
   _searchIndexCache = docs;
@@ -551,7 +589,7 @@ title: "${title}"
 review: pending
 tags:
   - aians
-  - 领域/数据要素
+  - 领域/知识库
   - AI回答
 aliases:
   - AI问答 ${date}
@@ -591,7 +629,7 @@ function apiAsk(req, cb) {
   req.on("data", (c) => (body += c));
   req.on("end", () => {
     try {
-      const { question, context } = JSON.parse(body || "{}");
+      const { question, context, autoIngest } = JSON.parse(body || "{}");
       if (!question || !question.trim()) return cb({ ok: false, error: "question 必填" });
       const dir = path.join(KB_ROOT, "输出", "查询", "inbox");
       fs.mkdirSync(dir, { recursive: true });
@@ -600,6 +638,7 @@ function apiAsk(req, cb) {
       const file = path.join(dir, name);
       const ctx = (context || "").trim().slice(0, 8000);
       let header = `---\nid: ${id}\nstatus: pending\naskedAt: ${new Date().toLocaleString("zh-CN", { hour12: false })}\nquestion: "${question.replace(/"/g, "'").slice(0, 120)}"\n`;
+      if (autoIngest) header += `autoIngest: true\n`;
       if (ctx) header += `hasContext: true\n`;
       header += `---\n\n${question}\n`;
       if (ctx) header += `\n<!-- 原文上下文（基于此答疑） -->\n${ctx}\n`;
@@ -611,6 +650,7 @@ function apiAsk(req, cb) {
 
 function apiTrigger(req, cb) {
   /* 立即唤醒「工作台 AI 对话服务」：把 next_run_at 戳到现在，调度器下一轮即执行 */
+  if (!AI_SERVICE_AUTOMATION_ID) return cb({ ok: false, error: "未配置 WB_AI_SERVICE_AUTOMATION_ID，已跳过立即唤醒" });
   try {
     const { DatabaseSync } = require("node:sqlite");
     const dbPath = path.join(os.homedir(), ".workbuddy", "workbuddy.db");
@@ -625,6 +665,141 @@ function apiTrigger(req, cb) {
   } catch (e) {
     try { cb({ ok: false, error: "触发失败：" + e.message }); } catch (_) {}
   }
+}
+
+function apiReingest(req, cb) {
+  /* 「打回重写」真重写：POST /api/reingest {rel, comment}
+     把被拒素材摘要的源素材 + 原摘要 + 重写意见组装成一条特殊 inbox 任务，
+     唤醒「工作台 AI 对话服务」自动化重新提炼 → 覆盖写回原文件（保持 review: pending） */
+  let body = "";
+  req.on("data", (c) => (body += c));
+  req.on("end", () => {
+    try {
+      const { rel, comment } = JSON.parse(body || "{}");
+      if (!rel) return cb({ ok: false, error: "rel 必填" });
+      const filePath = safeJoin(KB_ROOT, rel);
+      if (!filePath || !fs.existsSync(filePath)) return cb({ ok: false, error: "文件不存在：" + rel });
+      /* 读取被拒文件：frontmatter + 正文 */
+      const cur = fs.readFileSync(filePath, "utf-8");
+      const parsed = parseFrontmatter(cur);
+      const fm = parsed.fm || {};
+      const bodyText = (parsed.body || "").trim();
+      /* 源素材：frontmatter source（可能数组）→ 首个有效路径 */
+      let srcRel = "";
+      if (Array.isArray(fm.source)) srcRel = String(fm.source[0] || "").trim();
+      else if (typeof fm.source === "string") srcRel = fm.source.trim();
+      /* 找不到 source 时从正文「**来源：**」行提取 */
+      if (!srcRel) {
+        const m = bodyText.match(/\*\*来源：\*\*\s*([^\n]+)/);
+        if (m) srcRel = m[1].replace(/[「」]/g, "").trim().split(/[，,]/)[0].trim();
+      }
+      /* 读取源素材全文作为重写上下文 */
+      let srcContent = "";
+      if (srcRel) {
+        const srcPath = safeJoin(KB_ROOT, srcRel);
+        if (srcPath && fs.existsSync(srcPath)) {
+          try { srcContent = fs.readFileSync(srcPath, "utf-8").slice(0, 12000); } catch {}
+        } else {
+          /* 容错：source 路径引号格式与真实文件名不一致（半角/全角，且左右引号可能无序）。
+             归一化引号后，从 srcRel 目录扫描找真实存在的文件（先精确、再模糊） */
+          const normQ = (s) => s.replace(/["""]/g, '"').replace(/[‘'’]/g, "'");
+          const dirPart = srcRel.split("/").slice(0, -1).join("/");
+          const filePart = srcRel.split("/").pop().replace(/\.md$/i, "");
+          const realDir = safeJoin(KB_ROOT, dirPart);
+          if (realDir && fs.existsSync(realDir)) {
+            try {
+              const cands = fs.readdirSync(realDir);
+              /* 1) 归一化后精确匹配 */
+              const nf = normQ(filePart);
+              let hit = cands.find((f) => normQ(f.replace(/\.md$/i, "")) === nf);
+              /* 2) 归一化后包含匹配（文件名可能多/少引号或空格） */
+              if (!hit) hit = cands.find((f) => {
+                const a = normQ(f.replace(/\.md$/i, "")).replace(/\s+/g, "");
+                const b = nf.replace(/\s+/g, "");
+                return a.includes(b) || b.includes(a);
+              });
+              if (hit) {
+                srcContent = fs.readFileSync(path.join(realDir, hit), "utf-8").slice(0, 12000);
+                srcRel = dirPart + "/" + hit;
+              }
+            } catch (e) {}
+          }
+        }
+        /* 容错②：目录本身引号不匹配（目录名也有全角引号）→ 在原始素材下递归按归一化文件名搜索 */
+        if (!srcContent && srcRel) {
+          const normQ2 = (s) => s.replace(/[\u201C\u201D\u0022]/g, '\u0022').replace(/[\u2018\u2019\u0027]/g, '\u0027');
+          const nf2 = normQ2(srcRel.split("/").pop().replace(/\.md$/i, "")).replace(/\s+/g, "");
+          try {
+            const rawRoot = path.join(KB_ROOT, "原始素材");
+            const found = (function scanDir(dir, depth) {
+              if (depth > 4) return "";
+              let es;
+              try { es = fs.readdirSync(dir, { withFileTypes: true }); } catch { return ""; }
+              for (const x of es) {
+                const full = path.join(dir, x.name);
+                if (x.isDirectory()) {
+                  const r = scanDir(full, depth + 1);
+                  if (r) return r;
+                } else if (/\.md$/i.test(x.name)) {
+                  const a = normQ2(x.name.replace(/\.md$/i, "")).replace(/\s+/g, "");
+                  if (a === nf2 || a.includes(nf2) || nf2.includes(a)) {
+                    return path.relative(KB_ROOT, full).split(path.sep).join("/");
+                  }
+                }
+              }
+              return "";
+            })(rawRoot, 0);
+            if (found) {
+              srcContent = fs.readFileSync(path.join(KB_ROOT, found), "utf-8").slice(0, 12000);
+              srcRel = found;
+            }
+          } catch (e) {}
+        }
+      }
+      /* 组装重写任务 → inbox */
+      const dir = path.join(KB_ROOT, "输出", "查询", "inbox");
+      fs.mkdirSync(dir, { recursive: true });
+      const id = new Date().toISOString().slice(0, 10).replace(/-/g, "") + "-" + String(Date.now()).slice(-6);
+      const name = id + "-reingest.md";
+      const taskFile = path.join(dir, name);
+      const c = (comment || "").trim().slice(0, 500);
+      let header = `---\nid: ${id}\ntask: reingest\nstatus: pending\naskedAt: ${new Date().toLocaleString("zh-CN", { hour12: false })}\nquestion: "重写素材摘要：${rel}"\ntargetRel: "${rel}"\n`;
+      if (srcRel) header += `sourceRel: "${srcRel}"\n`;
+      if (c) header += `comment: "${c.replace(/"/g, "'")}"\n`;
+      header += `---\n\n请重新提炼以下源素材，生成一份新的素材摘要，覆盖写回 \`${rel}\`（保持 review: pending）。\n`;
+      if (c) header += `\n**打回意见**：${c}\n`;
+      header += `\n<!-- 原文上下文（基于此重写） -->\n`;
+      header += srcContent ? srcContent : "(未找到源素材，请基于现有摘要与知识库补全)\n";
+      if (!srcContent && bodyText) header += `\n<!-- 旧摘要（供参考） -->\n${bodyText.slice(0, 6000)}\n`;
+      fs.writeFileSync(taskFile, header, "utf-8");
+      /* 唤醒 AI 对话服务自动化 */
+      const { DatabaseSync } = require("node:sqlite");
+      const dbPath = path.join(os.homedir(), ".workbuddy", "workbuddy.db");
+      let triggered = false;
+      if (fs.existsSync(dbPath)) {
+        try {
+          const db = new DatabaseSync(dbPath);
+          const now = Date.now();
+          const r = db.prepare("UPDATE automations SET next_run_at = ?, updated_at = ? WHERE id = ? AND status = 'ACTIVE' AND deleted_at IS NULL")
+            .run(now, now, AI_SERVICE_AUTOMATION_ID);
+          db.close();
+          triggered = r.changes > 0;
+        } catch (e) { triggered = false; }
+      }
+      /* 给目标文件打「重写中」标记（AI 重写覆盖写回时清除），待审卡片据此显示 ♻️ 徽标 */
+      try {
+        if (fs.existsSync(filePath)) {
+          let cur = fs.readFileSync(filePath, "utf-8");
+          if (/^reingest:/m.test(cur)) cur = cur.replace(/^reingest:.*$/m, "reingest: pending");
+          else cur = cur.replace(/^(---)(\r?\n)/m, "$1$2reingest: pending$2");
+          writeFileRetry(filePath, cur);
+        }
+      } catch (e) { /* 标记失败不影响任务投递 */ }
+      cb({ ok: true, id, file: "输出/查询/inbox/" + name, srcRel, triggered, note: triggered ? "已投递重写任务并唤醒 AI，稍后自动重写" : "重写任务已投递，等待自动化取件" });
+    } catch (e) {
+      cb({ ok: false, error: e.message });
+    }
+  });
 }
 
 function apiDaily(req, cb) {
@@ -675,7 +850,27 @@ function apiDaily(req, cb) {
         }
       }
     } catch {}
-    if (!fs.existsSync(file)) return cb({ date, todos: [], works: [], entries: [], done: [], exists: false, allTodos, allDone });
+  /* 查找与日期关联的工作日报：当日优先，没有则向前找最近一期（日报当晚 20:00 生成，当天可能尚无） */
+  const report = (() => {
+    const reportDir = path.join(KB_ROOT, "日常", "日报");
+    if (!fs.existsSync(reportDir)) return null;
+    try {
+      const all = fs.readdirSync(reportDir)
+        .filter((f) => /^\d{4}-\d{2}-\d{2}-日报\.md$/.test(f))
+        .sort()
+        .reverse();
+      if (!all.length) return null;
+      const exact = all.find((f) => f.startsWith(date + "-"));
+      const target = exact || all.find((f) => f.slice(0, 10) <= date);
+      if (!target) return null;
+      return {
+        rel: "日常/日报/" + target,
+        date: target.slice(0, 10),
+        isExact: exact ? true : false
+      };
+    } catch { return null; }
+  })();
+  if (!fs.existsSync(file)) return cb({ date, todos: [], works: [], entries: [], done: [], exists: false, allTodos, allDone, report });
     const text = fs.readFileSync(file, "utf-8");
     const todos = [];
     const works = [];
@@ -699,7 +894,7 @@ function apiDaily(req, cb) {
         done.push({ date: dm[1].trim(), text: dm[2].trim(), meeting: dm[3].trim() || undefined });
       }
     }
-    cb({ date, todos, works, entries, done, exists: true, allTodos, allDone });
+    cb({ date, todos, works, entries, done, exists: true, allTodos, allDone, report });
   } catch (e) { cb({ error: e.message }); }
 }
 
@@ -865,10 +1060,223 @@ function apiTodo() {
   return todos;
 }
 
+function apiLongterm(req, cb) {
+  /* 长期待办池（日常/_长期待办.md）
+     GET  /api/longterm           → {ok, items:[{text,done}]}
+     POST /api/longterm {text}    → 新增
+     POST /api/longterm/done {text, date?} → 完结：从池移除 + 归档到当日日常文件的已办结表 */
+  const file = path.join(KB_ROOT, "日常", "_长期待办.md");
+  if (req.method === "GET") {
+    const items = [];
+    try {
+      if (fs.existsSync(file)) {
+        for (const line of fs.readFileSync(file, "utf-8").split(/\r?\n/)) {
+          const m = line.match(/^-\s*\[( |x)\]\s*(.+)$/);
+          if (m) items.push({ done: m[1] === "x", text: m[2].trim() });
+        }
+      }
+    } catch {}
+    return cb({ ok: true, items });
+  }
+  let body = "";
+  req.on("data", (c) => (body += c));
+  req.on("end", () => {
+    try {
+      const { text, date } = JSON.parse(body || "{}");
+      if (!text || !String(text).trim()) return cb({ ok: false, error: "text 必填" });
+      const t = String(text).trim().replace(/\n/g, " ");
+      if (!fs.existsSync(file)) fs.writeFileSync(file, `---\ntitle: 长期待办池\ntype: reference\nupdated: ${new Date().toISOString().slice(0, 10)}\n---\n\n# 🔁 长期待办池\n\n> 不限定完成日期的待办统一放这里（跨日滚动，不会沉没）。在首页「战场状态」的长期待办模块中操作。\n> 勾选完成 → 自动归档到当日「日常/YYYY-MM-DD.md」的已办结事项。\n\n`, "utf-8");
+      const lines = fs.readFileSync(file, "utf-8").split(/\r?\n/);
+      if (req.url.includes("/done")) {
+        /* 完结：从池移除匹配项 + 归档到目标日期已办结表 */
+        const out = lines.filter((l) => {
+          const m = l.match(/^-\s*\[( |x)\]\s*(.+)$/);
+          return !(m && m[2].trim() === t);
+        });
+        fs.writeFileSync(file, out.join("\n"), "utf-8");
+        const d = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : new Date().toISOString().slice(0, 10);
+        /* 归档：安全地在目标日常文件的已办结表插一行（不整体重写） */
+        const dailyFile = path.join(KB_ROOT, "日常", d + ".md");
+        if (fs.existsSync(dailyFile)) {
+          let text2 = fs.readFileSync(dailyFile, "utf-8");
+          const row = `| ${d} | ${t.replace(/\|/g, "／")} |  |`;
+          if (/## ✅ 已办结事项/.test(text2)) {
+            const secStart = text2.indexOf("## ✅ 已办结事项");
+            const secEnd = text2.indexOf("\n## ", secStart + 5);
+            const block = secEnd === -1 ? text2.slice(secStart) : text2.slice(secStart, secEnd);
+            const headEnd = block.indexOf("|---|---|---|");
+            if (headEnd !== -1) {
+              const insertAfter = headEnd + "|---|---|---|".length;
+              /* 若表头后是注释占位则替换，否则插行 */
+              const afterHead = block.slice(headEnd + "|---|---|---|".length).replace(/^\r?\n/, "");
+              if (/<!-- 暂无已办结 -->/.test(afterHead)) {
+                text2 = text2.slice(0, secStart + insertAfter) + "\n" + row + "\n" + text2.slice(secStart + insertAfter).replace(/<!-- 暂无已办结 -->/, "");
+              } else {
+                text2 = text2.slice(0, secStart + insertAfter) + "\n" + row + text2.slice(secStart + insertAfter);
+              }
+            }
+          } else {
+            text2 += `\n## ✅ 已办结事项\n\n| 办结日期 | 事项 | 会议纪要 |\n|---|---|---|\n${row}\n`;
+          }
+          fs.writeFileSync(dailyFile, text2, "utf-8");
+        } else {
+          fs.mkdirSync(path.dirname(dailyFile), { recursive: true });
+          fs.writeFileSync(dailyFile, `---\ndate: ${d}\ntype: daily\n---\n\n## 🛠 每日工作\n\n| 时间 | 工作内容 |\n|---|---|\n<!-- 暂无工作记录 -->\n\n## 📋 待办事项\n\n<!-- 暂无待办 -->\n\n## ✅ 已办结事项\n\n| 办结日期 | 事项 | 会议纪要 |\n|---|---|---|\n| ${d} | ${t.replace(/\|/g, "／")} |  |\n\n## 💰 记账手册\n\n| 时间 | 类型 | 一级分类 | 二级分类 | 金额(元) | 说明 |\n|---|---|---|---|---|---|\n<!-- 暂无账目 -->\n`, "utf-8");
+        }
+        return cb({ ok: true, archived: d });
+      }
+      /* 新增 */
+      const dup = lines.some((l) => {
+        const m = l.match(/^-\s*\[( |x)\]\s*(.+)$/);
+        return m && m[2].trim() === t;
+      });
+      if (dup) return cb({ ok: true, duplicate: true, note: "该待办已存在，未重复添加" });
+      const out = lines.slice();
+      out.push(`- [ ] ${t}`);
+      fs.writeFileSync(file, out.join("\n"), "utf-8");
+      cb({ ok: true });
+    } catch (e) { cb({ ok: false, error: e.message }); }
+  });
+}
+
 function apiLog() {
   const p = path.join(KB_ROOT, "知识层", "_操作日志.md");
   if (!fs.existsSync(p)) return [];
   return fs.readFileSync(p, "utf-8").split(/\r?\n/).filter((l) => l.trim().startsWith("- ["));
+}
+
+/* 阅读器笔记持久化：按文档 rel 存到 输出/查询/notes/<base64url(rel)>.json。
+   解决笔记只在内存、切页即丢的问题。GET 读 / POST 存整个 notes 数组。
+   同时同步生成随笔（type: essay，Obsidian 可见可链接）：
+   - 知识层文件 → 知识层/随笔/<源文档名>-随笔.md
+   - 素材层文件（原始素材/ 开头）→ 原始素材/随笔/<源文档名>-随笔.md
+   命名规则：同一 source 文档复用同一随笔文件；不同文档同名时追加序列号 -2/-3… 防重名。 */
+function syncEssay(rel, notes) {
+  try {
+    const isRaw = rel.startsWith("原始素材/");
+    const dir = isRaw ? path.join(KB_ROOT, "原始素材", "随笔") : path.join(KB_ROOT, "知识层", "随笔");
+    fs.mkdirSync(dir, { recursive: true });
+    const base = rel.split("/").pop().replace(/\.md$/i, "");
+    /* 序列号防重名：先找 source==rel 的现有随笔文件（复用，保持同一文档随笔不分裂） */
+    let fname = null;
+    let existing = [];
+    try { existing = fs.readdirSync(dir).filter((f) => f.endsWith(".md")); } catch {}
+    const own = existing.find((f) => {
+      try {
+        const t = fs.readFileSync(path.join(dir, f), "utf-8").slice(0, 300);
+        const m = t.match(/^source:\s*"?([^"\n]+)"?/m);
+        return m && m[1].trim() === rel;
+      } catch { return false; }
+    });
+    if (own) {
+      fname = own;
+    } else {
+      /* 无现有随笔：基名未被占用则直接用，否则追加序列号 -2/-3… */
+      let n = 1;
+      const taken = new Set(existing);
+      while (true) {
+        const cand = base + "-随笔" + (n === 1 ? "" : "-" + n) + ".md";
+        if (!taken.has(cand)) { fname = cand; break; }
+        n++;
+      }
+    }
+    const essayPath = path.join(dir, fname);
+    const day = new Date().toISOString().slice(0, 10);
+    const lines = [
+      "---",
+      "type: essay",
+      `source: "${rel}"`,
+      `created: ${day}`,
+      `updated: ${day}`,
+      "tags: [随笔]",
+      "---",
+      "",
+      `# ${base} · 随笔`,
+      "",
+      "> 本文档的阅读笔记（来自工作台阅读器「📝 笔记」，存笔记自动同步）。",
+      "",
+      "## 📝 笔记",
+      "",
+    ];
+    /* notes 最新在前 → 倒序后按时间正序输出（最旧在上） */
+    notes.slice().reverse().forEach((n) => {
+      lines.push(`### ${n.time || ""}`);
+      lines.push("");
+      if (n.quote) { lines.push(`> 原文：${n.quote}`); lines.push(""); }
+      lines.push(n.text || "");
+      lines.push("");
+      lines.push("---");
+      lines.push("");
+    });
+    writeFileRetry(essayPath, lines.join("\n"), { retries: 5, delayMs: 400 });
+    return (isRaw ? "原始素材/随笔/" : "知识层/随笔/") + fname;
+  } catch (e) { return ""; }
+}
+function apiNotes(req, cb) {
+  const url = new URL(req.url, "http://localhost");
+  const qRel = (url.searchParams.get("rel") || "").trim();
+  if (req.method === "GET") {
+    const rel = qRel;
+    if (!rel) return cb({ ok: false, error: "缺少 rel" });
+    const dir = path.join(KB_ROOT, "输出", "查询", "notes");
+    const file = path.join(dir, Buffer.from(rel).toString("base64url") + ".json");
+    try {
+      if (fs.existsSync(file)) {
+        const d = JSON.parse(fs.readFileSync(file, "utf-8"));
+        cb({ ok: true, notes: Array.isArray(d.notes) ? d.notes : [] });
+      } else cb({ ok: true, notes: [] });
+    } catch (e) { cb({ ok: true, notes: [] }); }
+    return;
+  }
+  let body = "";
+  req.on("data", (c) => { body += c; if (body.length > 2e6) req.destroy(); });
+  req.on("end", () => {
+    try {
+      const j = JSON.parse(body || "{}");
+      const rel = (j.rel || qRel || "").trim();
+      if (!rel) return cb({ ok: false, error: "缺少 rel" });
+      const notes = Array.isArray(j.notes) ? j.notes.slice(0, 200) : [];
+      const dir = path.join(KB_ROOT, "输出", "查询", "notes");
+      const file = path.join(dir, Buffer.from(rel).toString("base64url") + ".json");
+      fs.mkdirSync(dir, { recursive: true });
+      writeFileRetry(file, JSON.stringify({ rel, updated: Date.now(), notes }, null, 1), { retries: 5, delayMs: 400 });
+      const essayRel = syncEssay(rel, notes);
+      cb({ ok: true, saved: notes.length, essayRel: essayRel || undefined });
+    } catch (e) { cb({ ok: false, error: e.message }); }
+  });
+}
+
+/* 知识层/素材层随笔列表：返回 {rel, title, updated, preview}，按更新时间倒序 */
+function apiEssays() {
+  const roots = [
+    { dir: path.join(KB_ROOT, "知识层", "随笔"), relPrefix: "知识层/随笔/" },
+    { dir: path.join(KB_ROOT, "原始素材", "随笔"), relPrefix: "原始素材/随笔/" },
+  ];
+  const out = [];
+  for (const { dir, relPrefix } of roots) {
+    let files = [];
+    try { files = fs.readdirSync(dir).filter((f) => f.endsWith(".md") && !f.startsWith("_")); } catch (e) { continue; }
+    for (const f of files) {
+      try {
+        const p = path.join(dir, f);
+        const text = fs.readFileSync(p, "utf-8");
+        const { fm, body } = parseFrontmatter(text);
+        const title = (fm.title || f.replace(/\.md$/, "")).trim();
+        /* 预览：取实际笔记正文（跳过头像说明 / 标题 / 时间行 / 分割线） */
+        const preview = body
+          .split(/\r?\n/)
+          .map((l) => l.trim())
+          .filter((l) => l && !l.startsWith("> 本文档") && !l.startsWith("# ") && l !== "## 📝 笔记" && !/^###?\s+\d{1,2}:\d{2}/.test(l) && l !== "---")
+          .map((l) => l.replace(/^> 原文：/, "「").replace(/^>/, "").replace(/^###?\s*/, ""))
+          .filter(Boolean)
+          .slice(0, 8)
+          .join(" ")
+          .slice(0, 180);
+        out.push({ rel: relPrefix + f, title, updated: fm.updated || "", preview });
+      } catch (e) {}
+    }
+  }
+  return out.sort((a, b) => (b.updated || "").localeCompare(a.updated || ""));
 }
 
 function apiReview(req, cb) {
@@ -882,6 +1290,10 @@ function apiReview(req, cb) {
       if (!filePath || !fs.existsSync(filePath)) return cb({ ok: false, error: "文件不存在" });
       let text = fs.readFileSync(filePath, "utf-8");
       const to = action === "reject" ? "rejected" : "done";
+      /* 确认通过（done）时清除 reingest 字段：重写流程结束，恢复普通页面 */
+      if (to === "done" && /^reingest:/m.test(text)) {
+        text = text.replace(/^reingest:.*(?:\r?\n|$)/m, "");
+      }
       /* 精确替换 review 字段：处理 pending/done/rejected 任意现值 */
       if (/^review:\s*.+$/m.test(text)) {
         text = text.replace(/^review:\s*.+$/m, `review: ${to}`);
@@ -1074,6 +1486,7 @@ const server = http.createServer((req, res) => {
       if (p === "/api/stats") return readJson(res, apiStats());
       if (p === "/api/files") return readJson(res, apiFiles(u.searchParams.get("type")));
       if (p === "/api/file") {
+        if (req.method === "POST") return apiFileSave(req, (r) => readJson(res, r));
         const f = apiFile(u.searchParams.get("path") || "");
         if (!f) return readJson(res, { error: "not found" });
         return readJson(res, f);
@@ -1088,8 +1501,12 @@ const server = http.createServer((req, res) => {
       if (p === "/api/answers/ingest") return apiAnswersIngest(req, (r) => readJson(res, r));
       if (p === "/api/ask") return apiAsk(req, (r) => readJson(res, r));
       if (p === "/api/trigger") return apiTrigger(req, (r) => readJson(res, r));
+      if (p === "/api/reingest") return apiReingest(req, (r) => readJson(res, r));
       if (p === "/api/todo") return readJson(res, apiTodo());
+      if (p === "/api/longterm" || p === "/api/longterm/done") return apiLongterm(req, (r) => readJson(res, r));
       if (p === "/api/log") return readJson(res, apiLog());
+      if (p === "/api/notes") return apiNotes(req, (r) => readJson(res, r));
+      if (p === "/api/essays") return readJson(res, apiEssays());
       if (p === "/api/draft") return apiDraft(req, (r) => readJson(res, r));
       if (p === "/api/review") return apiReview(req, (r) => readJson(res, r));
       if (p === "/api/daily") return apiDaily(req, (r) => readJson(res, r));
@@ -1137,6 +1554,6 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`🗺 数据要素知识工作台 → http://localhost:${PORT}`);
+  console.log(`AI 知识工作台 → http://localhost:${PORT}`);
   console.log(`   知识库: ${KB_ROOT}`);
 });
