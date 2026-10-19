@@ -34,6 +34,9 @@
   - [前端](#前端)
   - [数据层](#数据层)
 - [API 一览](#api-一览)
+- [工具集](工具/README.md)
+- [定时任务](自动化/README.md)
+- [AGENTS.md 示例（主控 Schema）](AGENTS-示例.md)
 - [更新记录](CHANGELOG.md)
 - [目录结构](#目录结构)
 - [数据格式约定](#数据格式约定)
@@ -547,16 +550,17 @@ workbench-forge/
 │   │   └── README.md
 │   └── 输出/
 │       └── README.md
-├── 知识库骨架/           ← 知识库初始目录结构
-│   ├── 日常/
-│   │   ├── _模板.md
-│   │   └── _分类表.md
-│   ├── 知识层/
-│   │   └── README.md
-│   ├── 书架/
-│   │   └── README.md
-│   └── 输出/
-│       └── README.md
+├── 工具/                 ← 本地小工具（零依赖 Python 脚本）
+│   ├── 联网搜索/
+│   │   ├── ds_search.py          ← 全网搜索 / 抓取，落盘成 Markdown
+│   │   └── 知乎检索/             ← 站内检索 / 热榜 / 高赞回答精选
+│   └── PPT审核/
+│       ├── layout_check.py       ← 版面静态预估
+│       └── render_check.py       ← 版面渲染实测
+├── 自动化/               ← 定时任务模板（脱敏后的 prompt）
+│   ├── README.md
+│   └── prompts/          ← 6 个可直接复用的任务 prompt
+├── AGENTS-示例.md        ← 主控 Schema 骨架（工具治理 / 权限 / 规范）
 ├── screenshot-dashboard.svg  ← Dashboard 布局示意图
 ├── screenshot-todo.svg       ← 每日工作布局示意图
 ├── DEPLOY.md             ← AI 一键部署提示词

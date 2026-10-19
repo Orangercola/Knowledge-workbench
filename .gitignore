@@ -26,6 +26,11 @@ yarn.lock
 tmp/
 temp/
 
+# 密钥：只提交 .env.example，真实 .env 一律不入库
+.env
+.env.local
+*.secret
+
 # WorkBuddy personal files (absolutely exclude)
 .workbuddy/
 App/
