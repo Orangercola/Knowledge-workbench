@@ -11,7 +11,7 @@ const os = require("os");
 const { URL } = require("url");
 
 /* 知识库根目录：优先环境变量 WB_KB_ROOT（App 打包用），其次端口参数旁默认值 */
-const KB_ROOT = process.env.WB_KB_ROOT || path.join(os.homedir(), "Documents", "MyKnowledgeBase");
+const KB_ROOT = path.resolve(process.env.WB_KB_ROOT || path.join(os.homedir(), "Documents", "MyKnowledgeBase"));
 const APP_DIR = __dirname;
 const PORT = Number(process.argv[2] || process.env.PORT || 5173);
 const AI_SERVICE_AUTOMATION_ID = process.env.WB_AI_SERVICE_AUTOMATION_ID || ""; // 可选：用于立即唤醒 AI 对话自动化
@@ -35,8 +35,9 @@ if (!fs.existsSync(BOOKSHELF_DIR)) fs.mkdirSync(BOOKSHELF_DIR, { recursive: true
 const BOOKS_JSON = path.join(BOOKSHELF_DIR, "books.json");
 
 function safeJoin(base, rel) {
-  const abs = path.resolve(base, rel);
-  if (abs !== base && !abs.startsWith(base + path.sep)) return null;
+  const b = path.resolve(base);
+  const abs = path.resolve(b, rel);
+  if (abs !== b && !abs.startsWith(b + path.sep)) return null;
   return abs;
 }
 
@@ -80,18 +81,40 @@ function parseFrontmatter(text) {
     lines.forEach((line) => {
       const kv = line.match(/^([\w-]+):\s*(.*)$/);
       if (kv) {
+        /* 顶层键值：覆盖式写入 */
         let v = kv[2].trim();
         if (v.startsWith('"') && v.endsWith('"')) v = v.slice(1, -1);
         if (v === "true") v = true;
         else if (v === "false") v = false;
         fm[kv[1]] = v;
         curKey = kv[1];
+      } else if (curKey && Array.isArray(fm[curKey]) && /^\s+[\w-]+:/.test(line) && !/^\s*-\s/.test(line)) {
+        /* 数组项内的嵌套键值（对象型数组续行）：
+           relation_type: \n  - source: xxx \n    target: yyy
+           → 把 target 合入最近 push 的数组项对象，避免污染顶层 key */
+        const nkv = line.match(/^\s*([\w-]+):\s*(.*)$/);
+        const last = fm[curKey][fm[curKey].length - 1];
+        if (nkv && last && typeof last === "object" && !Array.isArray(last)) {
+          let v = nkv[2].trim();
+          if (v.startsWith('"') && v.endsWith('"')) v = v.slice(1, -1);
+          last[nkv[1]] = v;
+        } else curKey = null;
       } else if (curKey && /^\s*-\s+/.test(line)) {
-        /* YAML 数组续行：key: 之后跟 - item 行（如 source: 多来源） */
-        const item = line.replace(/^\s*-\s+/, "").trim().replace(/^"(.*)"$/, "$1");
-        if (Array.isArray(fm[curKey])) fm[curKey].push(item);
-        else if (fm[curKey] !== undefined && fm[curKey] !== "") fm[curKey] = [fm[curKey], item];
-        else fm[curKey] = [item];
+        /* YAML 数组续行：key: 之后跟 - item 行（如 source: 多来源 / relation_type: 对象项）
+           - key: value 形式的项解析为对象，纯文本项保持字符串 */
+        const item = line.replace(/^\s*-\s+/, "").trim();
+        const obj = item.match(/^([\w-]+):\s*(.*)$/);
+        let parsed;
+        if (obj) {
+          let v = obj[2].trim();
+          if (v.startsWith('"') && v.endsWith('"')) v = v.slice(1, -1);
+          parsed = { [obj[1]]: v };
+        } else {
+          parsed = item.replace(/^"(.*)"$/, "$1");
+        }
+        if (Array.isArray(fm[curKey])) fm[curKey].push(parsed);
+        else if (fm[curKey] !== undefined && fm[curKey] !== "") fm[curKey] = [fm[curKey], parsed];
+        else fm[curKey] = [parsed];
       } else {
         curKey = null;
       }
@@ -164,6 +187,58 @@ function collectWikiLinks(text) {
   return [...links];
 }
 
+/* 带语境地采集 wiki 双链：每次出现都记录「所在标题 + 所在行摘要」，
+   用于回答“两篇文档为什么有关联”，而不只是“有关联”。
+   返回 [{ name, heading, snippet }]，按出现顺序。 */
+function collectWikiLinkContexts(text) {
+  const out = [];
+  const lines = String(text || "").split(/\r?\n/);
+  const re = /\[\[([^\]|#]+)(?:\|[^\]]+)?\]\]/g;
+  let heading = "";
+  /* 逐行扫描而非用全局 index 反推行号：CRLF 文件下标会累积偏移，导致引用对错行 */
+  for (const line of lines) {
+    const h = line.match(/^#{1,6}\s+(.+?)\s*$/);
+    if (h) heading = h[1].replace(/[`*_]/g, "").trim();
+    re.lastIndex = 0;
+    let m;
+    while ((m = re.exec(line))) {
+      /* 把双链替换成显示名（别名优先），再去掉行首列表/引用符号，压平空白 */
+      let snip = line
+        .replace(/\[\[([^\]|#]+)(?:\|([^\]]+))?\]\]/g, (s, a, b) => (b || a).trim())
+        .replace(/^\s*[>#*+\-]+\s*/, "")
+        .replace(/[`*_]/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (!snip) snip = (m[0] || "").trim();
+      if (snip.length > 110) snip = snip.slice(0, 110) + "…";
+      out.push({ name: m[1].trim(), heading, snippet: snip });
+    }
+  }
+  return out;
+}
+
+/* 采集 frontmatter 里 relation_type 定义的语义关系：{ name, type, weight }
+   这类关系往往没有对应的正文双链，只有「语义类型」，是关联情况的另一种来源。 */
+function collectFrontmatterRelations(text) {
+  const { fm } = parseFrontmatter(text);
+  const rt = fm.relation_type;
+  if (!rt) return [];
+  const arr = Array.isArray(rt) ? rt : [rt];
+  const out = [];
+  for (const it of arr) {
+    if (!it || typeof it !== "object") continue;
+    const tgt = it.target;
+    if (!tgt) continue;
+    const name = String(tgt).split("/").pop().replace(/\.md$/, "").replace(/^"(.*)"$/, "$1").trim();
+    if (!name) continue;
+    out.push({ name, type: String(it.type || "").trim(), weight: it.weight != null && it.weight !== "" ? String(it.weight) : "" });
+  }
+  return out;
+}
+
+/* graph 数据结构版本：结构升级时递增，前端据此判断后台是否与前端同版 */
+const GRAPH_SCHEMA = "2026-09-14-context-v2";
+
 const skipDirs = ["工作台", ".obsidian", ".trash", ".git", "node_modules"];
 
 /* 内存缓存：search-index（2.5MB）和 graph（90KB）每次重建耗时，缓存后 <5ms */
@@ -176,7 +251,7 @@ const CACHE_TTL = 5 * 60 * 1000; // 5 分钟，重启即失效
 /* ---------- API Handlers ---------- */
 function apiStats() {
   const wiki = path.join(KB_ROOT, "知识层");
-  const counts = { source: 0, concept: 0, entity: 0, comparison: 0, synthesis: 0, essay: 0, template: 0, topic: 0 };
+  const counts = { source: 0, concept: 0, entity: 0, comparison: 0, synthesis: 0, essay: 0, template: 0, topic: 0, prompt: 0 };
   const byDir = {};
   (function scan(dir) {
     let entries;
@@ -199,6 +274,7 @@ function apiStats() {
         else if (parent === "随笔") counts.essay++;
         else if (parent === "_模板") counts.template++;
         else if (parent === "主题") counts.topic++;
+        else if (parent === "提示词") counts.prompt++;
       }
     }
   })(wiki);
@@ -356,6 +432,26 @@ function apiSearch(q, scope) {
 }
 function escapeReg(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
 
+/* 把 relation_type（对象/字符串数组）展平成可搜索文本：
+   [{type:"IMPLEMENTS", source:"知识层/实体/政务平台平台", target:"..."}] → "IMPLEMENTS 政务平台平台 …"
+   仅取 basename，避免把整条路径拆进分词 */
+function flattenRelations(rt) {
+  if (!rt) return "";
+  const arr = Array.isArray(rt) ? rt : [rt];
+  const parts = [];
+  for (const it of arr) {
+    if (typeof it === "string") { parts.push(it.split("/").pop().replace(/\.md$/, "")); continue; }
+    if (!it || typeof it !== "object") continue;
+    for (const k of ["type", "source", "target"]) {
+      const v = it[k];
+      if (!v) continue;
+      const base = String(v).split("/").pop().replace(/\.md$/, "").replace(/^"(.*)"$/, "$1");
+      if (base) parts.push(base);
+    }
+  }
+  return parts.join(" ");
+}
+
 function apiSearchIndex() {
   if (_searchIndexCache && Date.now() - _searchIndexCacheTime < CACHE_TTL) return _searchIndexCache;
   const docs = [];
@@ -378,12 +474,34 @@ function apiSearchIndex() {
     const { fm, body } = parseFrontmatter(text);
     const title = fm.title || path.basename(rel, ".md");
     const tags = Array.isArray(fm.tags) ? fm.tags.join(" ") : (fm.tags || "");
+    const aliases = Array.isArray(fm.aliases) ? fm.aliases.join(" ") : (fm.aliases || "");
+    const relations = flattenRelations(fm.relation_type);
     const content = body.replace(/[#*`>\-\[\]()!|]/g, " ").replace(/\s+/g, " ").trim().slice(0, 500);
-    docs.push({ id: rel, title, content, tags, type: fm.type || "page", rel });
+    docs.push({ id: rel, title, aliases, relations, content, tags, type: fm.type || "page", rel });
   }
   _searchIndexCache = docs;
   _searchIndexCacheTime = Date.now();
   return docs;
+}
+
+function apiNavigation(from, to) {
+  const g = apiGraph();
+  const resolve = (q) => {
+    if (!q) return null;
+    const s = String(q).toLowerCase();
+    return g.nodes.find((n) => n.rel.toLowerCase() === s || n.name.toLowerCase() === s || n.title.toLowerCase().includes(s)) || null;
+  };
+  const start = resolve(from), end = resolve(to);
+  const incoming = {}, outgoing = {};
+  g.nodes.forEach((n) => { incoming[n.rel] = []; outgoing[n.rel] = []; });
+  g.links.forEach((l) => { (outgoing[l.source] || (outgoing[l.source] = [])).push(l.target); (incoming[l.target] || (incoming[l.target] = [])).push(l.source); });
+  let pathResult = null;
+  if (start && end) {
+    const q = [start.rel], prev = { [start.rel]: null };
+    while (q.length) { const cur = q.shift(); if (cur === end.rel) break; for (const next of (outgoing[cur] || [])) if (!(next in prev)) { prev[next] = cur; q.push(next); } }
+    if (end.rel in prev) { const chain = []; for (let x = end.rel; x !== null; x = prev[x]) chain.unshift(x); pathResult = chain.map((r) => g.nodes.find((n) => n.rel === r)); }
+  }
+  return { nodes: g.nodes, links: g.links, backlinks: incoming, path: pathResult, from: start, to: end };
 }
 
 function apiGraph() {
@@ -391,7 +509,7 @@ function apiGraph() {
   const wiki = path.join(KB_ROOT, "知识层");
   const nodes = [];
   const nodeMap = {};
-  const links = [];
+  const linkAgg = {}; /* key: source\u0000target → { source, target, count, contexts:[{heading,snippet}] } */
   const files = [];
   walkMds(wiki, KB_ROOT, files, skipDirs);
   const byName = {};
@@ -415,15 +533,34 @@ function apiGraph() {
     const p = path.join(KB_ROOT, rel);
     let text;
     try { text = fs.readFileSync(p, "utf-8"); } catch { return; }
-    const links2 = collectWikiLinks(text);
-    links2.forEach((tgt) => {
-      const name = path.basename(tgt, ".md");
-      if (byName[name] && byName[name] !== rel) {
-        links.push({ source: rel, target: byName[name] });
+    /* 逐次出现采集语境，并按 (source,target) 聚合：count=被引用条数，contexts=关联产生的大致情况 */
+    collectWikiLinkContexts(text).forEach((o) => {
+      const tgt = byName[path.basename(o.name, ".md")];
+      if (!tgt || tgt === rel) return;
+      const key = rel + "\u0000" + tgt;
+      const item = linkAgg[key] || (linkAgg[key] = { source: rel, target: tgt, count: 0, contexts: [], relations: [] });
+      item.count++;
+      if (item.contexts.length < 6 && !item.contexts.some((c) => c.snippet === o.snippet)) {
+        item.contexts.push({ heading: o.heading, snippet: o.snippet });
+      }
+    });
+    /* frontmatter 语义关系：即使正文没有双链，也算一条关联，并把「关系类型」作为语境 */
+    collectFrontmatterRelations(text).forEach((r) => {
+      const tgt = byName[r.name];
+      if (!tgt || tgt === rel) return;
+      const key = rel + "\u0000" + tgt;
+      const item = linkAgg[key] || (linkAgg[key] = { source: rel, target: tgt, count: 0, contexts: [], relations: [] });
+      if (r.type && !item.relations.includes(r.type)) item.relations.push(r.type);
+      const snip = `语义关系：${r.type || "未标注"}${r.weight ? `（权重 ${r.weight}）` : ""}`;
+      if (item.contexts.length < 6 && !item.contexts.some((c) => c.snippet === snip)) {
+        item.contexts.push({ heading: "frontmatter 关系定义", snippet: snip });
       }
     });
   });
-  _graphCache = { nodes, links };
+  const links = Object.values(linkAgg);
+  let build = 0;
+  try { build = Math.round(fs.statSync(__filename).mtimeMs); } catch {}
+  _graphCache = { nodes, links, schema: GRAPH_SCHEMA, build };
   _graphCacheTime = Date.now();
   return _graphCache;
 }
@@ -589,7 +726,7 @@ title: "${title}"
 review: pending
 tags:
   - aians
-  - 领域/知识库
+  - 领域/知识
   - AI回答
 aliases:
   - AI问答 ${date}
@@ -650,7 +787,6 @@ function apiAsk(req, cb) {
 
 function apiTrigger(req, cb) {
   /* 立即唤醒「工作台 AI 对话服务」：把 next_run_at 戳到现在，调度器下一轮即执行 */
-  if (!AI_SERVICE_AUTOMATION_ID) return cb({ ok: false, error: "未配置 WB_AI_SERVICE_AUTOMATION_ID，已跳过立即唤醒" });
   try {
     const { DatabaseSync } = require("node:sqlite");
     const dbPath = path.join(os.homedir(), ".workbuddy", "workbuddy.db");
@@ -1494,6 +1630,7 @@ const server = http.createServer((req, res) => {
       if (p === "/api/search") return readJson(res, apiSearch(u.searchParams.get("q") || "", u.searchParams.get("scope")));
       if (p === "/api/search-index") return readJson(res, apiSearchIndex());
       if (p === "/api/graph") return readJson(res, apiGraph());
+      if (p === "/api/navigation") return readJson(res, apiNavigation(u.searchParams.get("from"), u.searchParams.get("to")));
       if (p === "/api/hotspots") return readJson(res, apiHotspots());
       if (p === "/api/related") return readJson(res, apiRelated(u.searchParams.get("path") || ""));
       if (p === "/api/inbox") return readJson(res, apiInbox());
@@ -1554,6 +1691,6 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`AI 知识工作台 → http://localhost:${PORT}`);
+  console.log(`🗺 AI 知识工作台 → http://localhost:${PORT}`);
   console.log(`   知识库: ${KB_ROOT}`);
 });

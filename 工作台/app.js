@@ -3,12 +3,13 @@
 
 const $ = (s) => document.querySelector(s);
 const API = "";
-const TYPE_COLOR = { concept: "#0d9488", source: "#0891b2", entity: "#16a34a", comparison: "#d97706", synthesis: "#dc2626", page: "#7b869a", topic: "#4fa3b3" };
-const TYPE_CN = { concept: "概念", source: "素材摘要", aians: "AI回答提炼", entity: "实体", comparison: "对比", synthesis: "综述", essay: "笔记", event: "活动", page: "页面", topic: "主题", template: "模板" };
+const TYPE_COLOR = { concept: "#0d9488", source: "#0891b2", entity: "#16a34a", comparison: "#d97706", synthesis: "#dc2626", page: "#7b869a", topic: "#4fa3b3", prompt: "#8b5cf6" };
+const TYPE_CN = { concept: "概念", source: "素材摘要", aians: "AI回答提炼", entity: "实体", comparison: "对比", synthesis: "综述", essay: "笔记", event: "活动", page: "页面", topic: "主题", template: "模板", prompt: "提示词" };
 
 const PAGES = {
   dashboard: { t: "总览 Dashboard", c: "知识库全景 · 战场状态" },
   graph: { t: "知识星图", c: "概念 / 实体 / 素材 关系网络" },
+  navigator: { t: "知识导航", c: "最短路径 / 反向引用" },
   library: { t: "素材库", c: "原始素材 · 625 篇转换稿" },
   hotspots: { t: "每日热点", c: "AI 资讯自动补给线 · 每天 8 点更新" },
   wiki: { t: "知识层", c: "AI 编译的知识网络 · 概念 / 实体 / 摘要 / 对比 / 综述" },
@@ -136,12 +137,12 @@ async function getSearchIndex() {
   miniSearchLoading = (async () => {
     const docs = await api("/api/search-index");
     miniSearch = new MiniSearch({
-      fields: ["title", "content", "tags"],
-      storeFields: ["title", "type", "rel", "tags", "content"],
+      fields: ["title", "aliases", "relations", "content", "tags"],
+      storeFields: ["title", "type", "rel", "tags", "content", "aliases", "relations"],
       idField: "id",
       tokenize: cnTokenizer,
       searchOptions: {
-        boost: { title: 4, tags: 2 },
+        boost: { title: 8, aliases: 6, relations: 5, tags: 3, content: 1 },
         fuzzy: 0.2,
         prefix: true,
         combineWith: "AND",
@@ -181,7 +182,7 @@ function buildSnippet(content, terms, maxLen = 120) {
 async function doSearch(q, opts = {}) {
   const idx = await getSearchIndex();
   const results = idx.search(q, {
-    boost: { title: 4, tags: 2 },
+    boost: { title: 8, aliases: 6, relations: 5, tags: 3, content: 1 },
     fuzzy: 0.2,
     prefix: true,
     combineWith: opts.combineWith || "AND",
@@ -192,6 +193,24 @@ async function doSearch(q, opts = {}) {
 
 function extractTerms(q) {
   return cnTokenizer(q).filter((t) => t.length >= 2 || /[\u4e00-\u9fa5]/.test(t));
+}
+
+/* 命中来源徽标：优先显示"最精确"的命中位置 */
+function hitSource(r, terms) {
+  const words = terms.filter((t) => t.length >= 2);
+  const has = (f) => words.some((x) => String(r[f] || "").toLowerCase().includes(x.toLowerCase()));
+  if (has("title")) return { label: "标题", cls: "tag-hit-title" };
+  if (has("aliases")) return { label: "别名", cls: "tag-hit-aliases" };
+  if (has("relations")) return { label: "关系", cls: "tag-hit-rel" };
+  if (has("tags")) return { label: "标签", cls: "tag-hit-tags" };
+  return { label: "正文", cls: "tag-hit-body" };
+}
+
+/* 知识层优先稳定排序：知识层页面（结论卡）置顶，其余素材/输出按原相关度殿后 */
+function rankResults(results) {
+  const wiki = [], rest = [];
+  results.forEach((r) => (String(r.rel).startsWith("知识层/") ? wiki : rest).push(r));
+  return wiki.concat(rest);
 }
 
 /* ---------- Markdown 渲染 ---------- */
@@ -212,7 +231,10 @@ function mdToHtml(md, baseDir) {
     }
     return m;
   });
-  body = body.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '<a class="wikilink" data-t="$1">$2</a>');
+  /* 表格内带别名的 wikilink 须写作 [[路径\|别名]]（Obsidian 标准转义，裸 | 会破表）。
+     目标段排除反斜杠并用 \\? 显式吃掉转义符，否则 data-t 会残留「\」导致跳转失效。
+     （2026-09-14 修：研修班课件表 / NDI-TR 综述表共 10 处受影响） */
+  body = body.replace(/\[\[([^\]|\\]+)\\?\|([^\]]+)\]\]/g, '<a class="wikilink" data-t="$1">$2</a>');
   body = body.replace(/\[\[([^\]|]+)\]\]/g, '<a class="wikilink" data-t="$1">$1</a>');
   /* 原始素材裸路径 → 可点击来源链接（.md 打开转换稿 / 图片 lightbox 预览）
      lookbehind 排除 wikilink 的 data-t 属性值；惰性匹配到扩展名，兼容文件名中的中文括号 */
@@ -842,7 +864,13 @@ async function bindWikiLinks() {
         const tname = target.split("/").pop();
         let hit2 = raws.find((f) => relOf(f) === target || relOf(f).split("/").pop().replace(/\.(md|png|jpg|jpeg|webp|gif|pptx|ppt)$/i, "") === tname);
         if (hit2) openFile(relOf(hit2));
-        else dflash("未找到页面：" + target, true);
+        else {
+          /* 兜底：研究/原文区（AI研究/ 等）按短名探测，wikilink 引用 AI研究 原文时可跳转 */
+          const tryRel = "AI研究/" + tname + ".md";
+          const probe = await api("/api/file?path=" + encodeURIComponent(tryRel));
+          if (probe && !probe.error) openFile(tryRel);
+          else dflash("未找到页面：" + target, true);
+        }
       }
       return;
     }
@@ -926,7 +954,7 @@ function closeLightbox() {
 /* ---------- 页面渲染 ---------- */
 async function renderPage(page) {
   const c = $("#content");
-  const loaders = { dashboard: renderDashboard, graph: renderGraph, library: renderLibrary, hotspots: renderHotspots, wiki: renderWiki, brainstorm: renderBrainstorm, ai: renderAIchat, todo: renderTodoPage, ledger: renderLedgerPage, studio: renderStudio, archive: renderArchive, bookshelf: renderBookshelf };
+  const loaders = { dashboard: renderDashboard, graph: renderGraph, navigator: renderNavigator, library: renderLibrary, hotspots: renderHotspots, wiki: renderWiki, brainstorm: renderBrainstorm, ai: renderAIchat, todo: renderTodoPage, ledger: renderLedgerPage, studio: renderStudio, archive: renderArchive, bookshelf: renderBookshelf };
   c.innerHTML = `<div class="page active" style="padding:10px 0;color:var(--text3);">加载中…</div>`;
   try {
     await loaders[page](c);
@@ -964,7 +992,7 @@ async function renderDashboard(c) {
         </div>
       </div>
       <div class="grid c4 dash-stats">
-        <div class="stat"><div class="num">${s.wikiTotal}</div><div class="lbl">知识层页面</div><div class="sub">概念 ${cnt.concept} · 实体 ${cnt.entity} · 摘要 ${cnt.source}</div></div>
+        <div class="stat"><div class="num">${s.wikiTotal}</div><div class="lbl">知识层页面</div><div class="sub">概念 ${cnt.concept} · 实体 ${cnt.entity} · 摘要 ${cnt.source} · 提示词 ${cnt.prompt}</div></div>
         <div class="stat"><div class="num">${s.rawFiles}</div><div class="lbl">素材转换稿</div><div class="sub">原始素材 / 文章</div></div>
         <div class="stat"><div class="num">${cnt.comparison + cnt.synthesis}</div><div class="lbl">对比 + 综述</div><div class="sub">横向分析成果</div></div>
         <div class="stat ring-stat">
@@ -1332,6 +1360,95 @@ function drawGraphD3(g) {
     });
 }
 
+/* --- 知识导航：路径查找（带关联语境） + 反向引用（带关联语境） --- */
+async function renderNavigator(c) {
+  const g = await api("/api/graph");
+  const nodeMap = {}; g.nodes.forEach((n) => { nodeMap[n.rel] = n; });
+  const label = (rel) => { const n = nodeMap[rel]; return n ? (n.title || n.name) : String(rel).split("/").pop(); };
+  const opts = g.nodes.map((n) => `<option value="${esc(n.rel)}">${esc(n.title || n.name)}</option>`).join("");
+  const linkOf = (a, b) => g.links.find((l) => l.source === a && l.target === b);
+  /* 后台是否与本前端同版：旧进程没有 contexts/schema，语境功能不会生效 */
+  const stale = !g.schema || g.schema !== "2026-09-14-context-v2";
+  /* 把一条关系的语境渲染出来：引用所在一节标题 + 引用所在行摘要 */
+  const ctxHtml = (lk) => {
+    const ctx = (lk && lk.contexts) ? lk.contexts : [];
+    if (!ctx.length) {
+      return stale
+        ? `<div style="margin:6px 0 0 4px;font-size:12px;color:var(--amber);">后台仍是旧服务进程，语境暂不可用：请完全退出工作台（含后台进程）后重新打开。</div>`
+        : `<div style="margin:6px 0 0 4px;font-size:12px;color:var(--text3);">仅识别到引用关系，未取到上下文语境。</div>`;
+    }
+    return `<div style="margin:6px 0 0 4px;border-left:2px solid var(--line);padding-left:10px;display:flex;flex-direction:column;gap:4px;">` +
+      ctx.map((x) => `<div style="font-size:12px;color:var(--text2);line-height:1.55;">${x.heading ? `<span style="color:#4fa3b3;margin-right:6px;">「${esc(x.heading)}」</span>` : ""}${esc(x.snippet)}</div>`).join("") +
+      `</div>`;
+  };
+  /* 关系标签：正文引用条数 + frontmatter 语义关系类型 */
+  const badge = (lk) => {
+    if (!lk) return "";
+    const parts = [];
+    if (lk.count > 0) parts.push(`引用 ${lk.count} 处`);
+    if (lk.relations && lk.relations.length) parts.push(`关系 ${lk.relations.join("／")}`);
+    if (!parts.length) return "";
+    return `<span class="muted" style="font-size:11px;">${esc(parts.join(" · "))}</span>`;
+  };
+  const pill = (rel, idx) => `<button class="btn ghost" style="margin:2px" data-open="${esc(rel)}">${idx != null ? idx + ". " : ""}${esc(label(rel))}</button>`;
+  const staleTip = stale
+    ? `<div class="card" style="padding:12px 16px;margin-bottom:12px;border-left:3px solid var(--amber);font-size:12px;color:var(--text2);line-height:1.7;">` +
+      `当前后台服务仍是<strong>旧版进程</strong>（尚未加载关联语境逻辑），所以只显示「有关联」而没有「为什么关联」。` +
+      `请<strong>完全退出</strong>「AI 知识工作台」再重新打开（只新开窗口不算，会被端口复用逻辑挡回旧服务）。</div>`
+    : "";
+  c.innerHTML = `<div class="page active"><div class="page-head"><div><h2>知识导航</h2><p class="muted">从一篇文档走到另一篇，看清每一步「为什么」相连。</p></div></div>` + staleTip +
+    `<div class="card" style="padding:20px"><div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end">` +
+    `<label style="flex:1;min-width:220px">起点<select id="navFrom" class="input" style="width:100%"><option value="">选择页面</option>${opts}</select></label>` +
+    `<label style="flex:1;min-width:220px">终点<select id="navTo" class="input" style="width:100%"><option value="">选择页面</option>${opts}</select></label>` +
+    `<button class="btn" id="navGo">查找路径</button></div>` +
+    `<div id="navResult" style="margin-top:18px;color:var(--text2)">请选择起点和终点。</div></div>` +
+    `<div class="card" style="padding:20px;margin-top:14px"><h3>反向引用</h3>` +
+    `<p class="muted">选择页面，查看谁引用了它，以及在什么语境下引用。</p>` +
+    `<select id="backTarget" class="input" style="width:100%;max-width:520px"><option value="">选择页面</option>${opts}</select>` +
+    `<div id="backResult" style="margin-top:12px"></div></div></div>`;
+  const bindOpen = (root) => root.querySelectorAll("[data-open]").forEach((b) => b.onclick = () => openFile(b.dataset.open));
+  const showBack = (rel) => {
+    const box = $("#backResult");
+    if (!rel) { box.innerHTML = `<span class="muted">请选择一个页面。</span>`; return; }
+    const inc = g.links.filter((l) => l.target === rel).sort((a, b) => (b.count || 0) - (a.count || 0));
+    if (!inc.length) { box.innerHTML = `<span class="muted">暂无反向引用</span>`; return; }
+    const total = inc.reduce((s, l) => s + (l.count || 0), 0);
+    box.innerHTML = `<div class="muted" style="margin-bottom:10px;font-size:12px;">共 ${inc.length} 个页面引用「${esc(label(rel))}」${total > inc.length ? `，合计 ${total} 处` : ""}。</div>` +
+      inc.map((l) => `<div style="padding:10px 0;border-top:1px solid var(--line);">` +
+        `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><button class="btn ghost" style="margin:0;" data-open="${esc(l.source)}">${esc(label(l.source))}</button>` +
+        `${badge(l)}</div>${ctxHtml(l)}</div>`).join("");
+    bindOpen(box);
+  };
+  $("#navGo").onclick = async () => {
+    const from = $("#navFrom").value, to = $("#navTo").value, res = $("#navResult");
+    if (!from || !to) { res.innerHTML = `<span class="muted">请选择起点和终点。</span>`; return; }
+    if (from === to) { res.innerHTML = `<span class="muted">起点与终点相同。</span>`; return; }
+    const j = await api(`/api/navigation?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+    if (!j.path) { res.innerHTML = `<span style="color:var(--amber)">两个页面之间暂未找到关联路径。</span>`; return; }
+    /* 直接关系概况：不只说“有关联”，还给出关联产生的语境 */
+    const direct = linkOf(from, to), back = linkOf(to, from);
+    let summary = "";
+    if (direct || back) {
+      summary = `<div style="margin-bottom:12px;padding:10px 12px;background:rgba(79,163,179,.07);border-radius:8px;font-size:12px;color:var(--text2);">`;
+      if (direct) summary += `<div><strong>起点 → 终点</strong> 直接关联 ${badge(direct)}${ctxHtml(direct)}</div>`;
+      if (back) summary += `<div style="margin-top:${direct ? "8px" : "0"};"><strong>终点 → 起点</strong> 直接关联 ${badge(back)}${ctxHtml(back)}</div>`;
+      summary += `</div>`;
+    }
+    const chain = `<div style="display:flex;gap:2px;flex-wrap:wrap;align-items:center;margin:0 0 12px;">${j.path.map((n, i) => pill(n.rel, i + 1)).join(`<span class="muted">→</span>`)}</div>`;
+    const hops = [];
+    for (let i = 0; i < j.path.length - 1; i++) {
+      const a = j.path[i].rel, b = j.path[i + 1].rel, lk = linkOf(a, b);
+      hops.push(`<div style="padding:10px 0;border-top:1px solid var(--line);">` +
+        `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;"><button class="btn ghost" style="margin:0;" data-open="${esc(a)}">${i + 1}. ${esc(label(a))}</button>` +
+        `<span class="muted">→</span><button class="btn ghost" style="margin:0;" data-open="${esc(b)}">${esc(label(b))}</button>` +
+        `${badge(lk)}</div>${ctxHtml(lk)}</div>`);
+    }
+    res.innerHTML = `<strong>共 ${j.path.length - 1} 步路径</strong>${summary}${chain}${hops.join("")}`;
+    bindOpen(res);
+  };
+  $("#backTarget").addEventListener("change", (e) => showBack(e.target.value));
+}
+
 /* --- 素材库 --- */
 let rawCache = null;
 async function renderLibrary(c) {
@@ -1610,7 +1727,7 @@ async function renderHotspots(c) {
 let wikiCache = null;
 async function renderWiki(c) {
   if (!wikiCache) wikiCache = await api("/api/files?type=wiki");
-  const types = ["全部", "concept", "entity", "source", "comparison", "synthesis", "aians", "event"];
+  const types = ["全部", "concept", "entity", "source", "comparison", "synthesis", "aians", "event", "prompt"];
   c.innerHTML = `<div class="page active"><div class="split">
     <div class="file-tree wiki-tree">
       <div class="wiki-search-row"><input id="wikiSearch" class="wiki-search" placeholder="🔍 筛选：标题 / 标签关键词…"></div>
@@ -1690,7 +1807,7 @@ async function renderBrainstorm(c) {
     <div class="card">
       <h3>💡 头脑风暴 — 读库 → 追问 → 写回</h3>
       <p style="font-size:12px;color:var(--text2);margin-bottom:12px;">输入一个真实问题，AI 检索知识层与素材库，返回相关片段；基于片段头脑风暴，新认知可写回知识库。</p>
-      <textarea class="brain-input" id="bsQ" placeholder="例：某类公共数据授权运营的价格机制是什么？与其他地区有什么差异？"></textarea>
+      <textarea class="brain-input" id="bsQ" placeholder="例：公共数据授权运营的价格机制是什么？与行业惯例有什么差异？"></textarea>
       <div style="display:flex;gap:10px;margin-top:10px;align-items:center;">
         <button class="btn" id="bsGo">🔍 检索并头脑风暴</button>
         <span style="font-size:11px;color:var(--text3);">检索范围：知识层 + 素材库（关键词匹配）</span>
@@ -1746,7 +1863,7 @@ async function renderAIchat(c) {
     <div class="card" style="margin-bottom:14px;">
       <h3>🤖 AI 对话 — 读库 → 追问 → 写回</h3>
       <p style="font-size:12px;color:var(--text2);margin-bottom:10px;">提问入箱（inbox）→ Agent 读取知识库回答 → 回答写回（answers）→ 本页自动取回。Agent 处理中请稍候，页面每 10 秒自动刷新。</p>
-      <textarea class="brain-input" id="aiAskQ" placeholder="例：基于知识库，某类公共数据授权运营的价格机制是什么？与其他地区有何差异？"></textarea>
+      <textarea class="brain-input" id="aiAskQ" placeholder="例：基于知识库，公共数据授权运营的价格机制是什么？与行业惯例有何差异？"></textarea>
       <div style="display:flex;gap:10px;margin-top:10px;align-items:center;position:relative;z-index:50;">
         <div style="display:flex;flex-shrink:0;">
           <button class="btn" id="aiAskGo" style="border-radius:11px 0 0 11px;">📮 发送给 WorkBuddy</button>
@@ -3282,11 +3399,11 @@ $("#searchInput").addEventListener("input", (e) => {
   if (q.length < 2) { if (searchSuggestBox) searchSuggestBox.style.display = "none"; return; }
   searchSuggestTimer = setTimeout(async () => {
     const box = ensureSuggestBox();
-    const results = await doSearch(q, { limit: 8, combineWith: "OR" });
+    const results = rankResults(await doSearch(q, { limit: 12, combineWith: "OR" }));
     if (!results.length) { box.style.display = "none"; return; }
     const terms = extractTerms(q);
     box.innerHTML = results.map((r) => `<div class="ss-item" data-rel="${esc(r.rel)}" style="padding:9px 14px;cursor:pointer;border-bottom:1px solid var(--line);transition:background 0.15s;">
-      <div style="font-size:12.5px;font-weight:600;color:var(--acc2);">${highlightText(r.title, terms)} <span style="font-size:10px;color:var(--text3);font-weight:400;">${TYPE_CN[r.type] || ""}</span></div>
+      <div style="font-size:12.5px;font-weight:600;color:var(--acc2);">${highlightText(r.title, terms)} <span style="font-size:10px;color:var(--text3);font-weight:400;">${TYPE_CN[r.type] || ""}${String(r.rel).startsWith("知识层/") ? " · 知识层" : ""}</span> <span class="tag-hit ${hitSource(r, terms).cls}" style="font-size:10px;">${hitSource(r, terms).label}</span></div>
     </div>`).join("");
     box.style.display = "block";
     box.querySelectorAll(".ss-item").forEach((el) => {
@@ -3307,16 +3424,18 @@ $("#searchInput").addEventListener("keydown", async (e) => {
   if (searchSuggestBox) searchSuggestBox.style.display = "none";
   const c = $("#content");
   c.innerHTML = `<div class="page active"><div class="page-h">搜索中…</div></div>`;
-  const results = await doSearch(q, { limit: 30 });
+  const results = rankResults(await doSearch(q, { limit: 40 }));
   const terms = extractTerms(q);
+  const wikiCount = results.filter((r) => String(r.rel).startsWith("知识层/")).length;
   c.innerHTML = `<div class="page active">
     <div class="page-h">搜索结果：${esc(q)}</div>
-    <div class="page-d">命中 ${results.length} 条 · 全文分词搜索 · 相关性排序</div>
+    <div class="page-d">命中 ${results.length} 条 · 知识层 ${wikiCount} 条 · 全文分词 · 相关性排序（知识层优先）</div>
     <div style="display:flex;flex-direction:column;gap:8px;">
       ${results.map((r) => {
         const snippet = r.content ? buildSnippet(r.content, terms) : "";
+        const hsrc = hitSource(r, terms);
         return `<div class="hit" data-rel="${esc(r.rel)}">
-          <div class="t">${highlightText(r.title, terms)} <span style="font-size:10px;color:var(--text3);">${esc(r.rel)}</span></div>
+          <div class="t">${highlightText(r.title, terms)} <span class="tag-hit ${hsrc.cls}" style="font-size:10px;">${hsrc.label}</span> ${String(r.rel).startsWith("知识层/") ? `<span style="font-size:10px;color:var(--acc);">知识层</span>` : ""} <span style="font-size:10px;color:var(--text3);">${esc(r.rel)}</span></div>
           <div class="s">${snippet || '<span style="color:var(--text3)">标题命中</span>'}</div>
         </div>`;
       }).join("") || "<div style='color:var(--text3)'>无命中，试试换个关键词或减少条件</div>"}

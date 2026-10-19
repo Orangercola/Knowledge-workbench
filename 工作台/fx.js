@@ -1,13 +1,11 @@
 /* ============================================================
-   AI 知识工作台 · 动效增强层 fx.js
+   用户的专属工作台 · 动效增强层 fx.js
    ─────────────────────────────────────────────
    纯视觉增强，不修改任何功能逻辑：
    - 统计数字滚动动画（.stat .num）
    - 环形进度动画（.ring-wrap circle）
    - 条形图展开动画（.mb-fill）
    - 页面内容渐次入场（.card / .stat stagger）
-   - 指针聚光变量（环境光 + 卡片边框）
-   - 按钮点击波纹（反馈点击状态）
    通过 MutationObserver 自动适配动态渲染的页面，
    尊重 prefers-reduced-motion。
    ============================================================ */
@@ -16,43 +14,6 @@
   if (reduced) return; // 用户偏好减少动效：直接退出
 
   const easeOut = (t) => 1 - Math.pow(1 - t, 3);
-
-  // ---- 环境聚光与卡片局部坐标 ----
-  let pointerRaf = 0;
-  window.addEventListener("pointermove", (e) => {
-    if (pointerRaf) return;
-    pointerRaf = requestAnimationFrame(() => {
-      pointerRaf = 0;
-      const x = ((e.clientX / window.innerWidth) * 100).toFixed(2) + "%";
-      const y = ((e.clientY / window.innerHeight) * 100).toFixed(2) + "%";
-      document.documentElement.style.setProperty("--fx-x", x);
-      document.documentElement.style.setProperty("--fx-y", y);
-    });
-  }, { passive: true });
-
-  function bindSpotlight(el) {
-    if (el.dataset.fxSpot === "1") return;
-    el.dataset.fxSpot = "1";
-    el.addEventListener("pointermove", (e) => {
-      const r = el.getBoundingClientRect();
-      el.style.setProperty("--mx", (((e.clientX - r.left) / r.width) * 100).toFixed(2) + "%");
-      el.style.setProperty("--my", (((e.clientY - r.top) / r.height) * 100).toFixed(2) + "%");
-    }, { passive: true });
-  }
-
-  function bindRipple(el) {
-    if (el.dataset.fxRipple === "1") return;
-    el.dataset.fxRipple = "1";
-    el.addEventListener("pointerdown", (e) => {
-      const r = el.getBoundingClientRect();
-      const wave = document.createElement("span");
-      wave.className = "fx-ripple";
-      wave.style.left = `${e.clientX - r.left}px`;
-      wave.style.top = `${e.clientY - r.top}px`;
-      el.appendChild(wave);
-      setTimeout(() => wave.remove(), 520);
-    });
-  }
 
   // ---- 数字滚动 ----
   function animateNum(el) {
@@ -138,8 +99,6 @@
   function enhance(scope) {
     scope.querySelectorAll(".stat .num").forEach(animateNum);
     scope.querySelectorAll(".ring-wrap").forEach(animateRing);
-    scope.querySelectorAll(".card, .stat, .file-tree, .reader-pane, .ai-panel, .graph-wrap").forEach(bindSpotlight);
-    scope.querySelectorAll(".btn, .theme-toggle, .refresh-btn, .side-collapse, .side-expand").forEach(bindRipple);
     animateBars(scope);
     staggerCards(scope);
   }
@@ -155,57 +114,5 @@
     observer.observe(content, { childList: true, subtree: true });
     // 初始增强
     setTimeout(() => enhance(content), 150);
-  }
-})();
-
-/* ============================================================
-   彩蛋层 · 朱敦儒词句（隐藏彩蛋，与功能无耦合）
-   - 层 1：侧边栏底部随机词句（紫=年少/琥珀=年老）
-   - 层 2：Logo 五连击 → 全屏两首词对比卡
-   ============================================================ */
-(() => {
-  const VERSES = [
-    { text: "我是清都山水郎，天教分付与疏狂。", src: "朱敦儒《鹧鸪天·西都作》", era: "少" },
-    { text: "诗万首，酒千觞。几曾着眼看侯王。", src: "朱敦儒《鹧鸪天·西都作》", era: "少" },
-    { text: "玉楼金阙慵归去，且插梅花醉洛阳。", src: "朱敦儒《鹧鸪天·西都作》", era: "少" },
-    { text: "世事短如春梦，人情薄似秋云。", src: "朱敦儒《西江月》", era: "老" },
-    { text: "不须计较苦劳心。万事元来有命。", src: "朱敦儒《西江月》", era: "老" },
-    { text: "幸遇三杯酒好，况逢一朵花新。", src: "朱敦儒《西江月》", era: "老" },
-    { text: "片时欢笑且相亲。明日阴晴未定。", src: "朱敦儒《西江月》", era: "老" },
-  ];
-
-  // 层 1：侧边栏底部随机词句
-  const foot = document.querySelector(".side-foot");
-  if (foot) {
-    const v = VERSES[Math.floor(Math.random() * VERSES.length)];
-    const el = document.createElement("div");
-    el.className = "egg-verse";
-    el.innerHTML =
-      `<span class="egg-era ${v.era === "少" ? "young" : "old"}">${v.era}</span>` +
-      `<span class="egg-text">${v.text}</span>`;
-    el.title = v.src;
-    foot.appendChild(el);
-  }
-
-  // 层 2：Logo 五连击（1.2s 内点满 5 次）
-  const logo = document.querySelector(".sidebar .logo");
-  if (logo) {
-    let clicks = 0, timer = null;
-    logo.addEventListener("click", () => {
-      clicks++;
-      clearTimeout(timer);
-      timer = setTimeout(() => (clicks = 0), 1200);
-      if (clicks >= 5) {
-        clicks = 0;
-        const egg = document.getElementById("easterEgg");
-        if (egg) egg.classList.add("show");
-      }
-    });
-    document.addEventListener("click", (e) => {
-      const egg = document.getElementById("easterEgg");
-      if (egg && egg.classList.contains("show")) {
-        if (e.target === egg || e.target.closest(".egg-close")) egg.classList.remove("show");
-      }
-    });
   }
 })();
